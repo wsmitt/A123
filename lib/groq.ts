@@ -4,10 +4,22 @@ import { assertAsciiHeaderValue, fetchWithRetry } from "./http";
 // never be imported from a client component.
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 
-// Preference order used when GROQ_CHAT_MODEL isn't set in env. Groq rotates
-// and deprecates model IDs, so we discover what the account actually has
-// rather than hardcoding one.
-const CHAT_MODEL_PREFERENCE = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+// Works out of the box with no GROQ_CHAT_MODEL env var set — discovery below
+// still runs (Groq rotates and deprecates model IDs), but this is always the
+// safety net, never "whatever came first in the account's model list".
+const DEFAULT_CHAT_MODEL = "llama-3.3-70b-versatile";
+const CHAT_MODEL_PREFERENCE = [DEFAULT_CHAT_MODEL, "llama-3.1-8b-instant"];
+
+// Groq's /models endpoint lists every model the account can use, including
+// STT (whisper), TTS (orpheus, and anything with "tts"/"audio" in the id),
+// moderation (guard), and vision models — none of those work as a chat
+// completion model, so discovery must filter them out before picking one.
+const NON_CHAT_MODEL_HINTS = ["whisper", "tts", "orpheus", "audio", "guard", "vision"];
+
+function isChatModel(id: string): boolean {
+  const lower = id.toLowerCase();
+  return !NON_CHAT_MODEL_HINTS.some((hint) => lower.includes(hint));
+}
 
 export class GroqApiError extends Error {
   status: number;
@@ -60,26 +72,33 @@ async function discoverChatModel(): Promise<string> {
   if (discoveryInFlight) return discoveryInFlight;
 
   discoveryInFlight = (async () => {
-    const res = await fetch(`${GROQ_BASE_URL}/models`, {
-      headers: { Authorization: `Bearer ${requireApiKey()}` },
-    });
-    if (!res.ok) {
-      throw new GroqApiError(res.status, res.headers.get("retry-after"), await res.text());
+    // Discovery is a nice-to-have, not a requirement — any failure here
+    // (network error, empty/unusable model list, non-2xx response) falls
+    // back to DEFAULT_CHAT_MODEL rather than blocking chat entirely.
+    try {
+      const res = await fetch(`${GROQ_BASE_URL}/models`, {
+        headers: { Authorization: `Bearer ${requireApiKey()}` },
+      });
+      if (!res.ok) {
+        throw new GroqApiError(res.status, res.headers.get("retry-after"), await res.text());
+      }
+      const data: { data?: Array<{ id: string }> } = await res.json();
+      const ids = (data.data ?? []).map((m) => m.id).filter(isChatModel);
+      const preferred = CHAT_MODEL_PREFERENCE.find((id) => ids.includes(id));
+      const chosen = preferred ?? DEFAULT_CHAT_MODEL;
+      cachedChatModel = chosen;
+      // eslint-disable-next-line no-console
+      console.log(`[groq] selected chat model: ${chosen}`);
+      return chosen;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[groq] model discovery failed, falling back to ${DEFAULT_CHAT_MODEL}:`,
+        err
+      );
+      cachedChatModel = DEFAULT_CHAT_MODEL;
+      return DEFAULT_CHAT_MODEL;
     }
-    const data: { data?: Array<{ id: string }> } = await res.json();
-    const ids = (data.data ?? []).map((m) => m.id);
-    const preferred = CHAT_MODEL_PREFERENCE.find((id) => ids.includes(id));
-    const fallback = ids.find(
-      (id) => !id.includes("whisper") && !id.includes("guard") && !id.includes("tts")
-    );
-    const chosen = preferred ?? fallback ?? ids[0];
-    if (!chosen) {
-      throw new Error("Groq returned no usable chat models for this account.");
-    }
-    cachedChatModel = chosen;
-    // eslint-disable-next-line no-console
-    console.log(`[groq] selected chat model: ${chosen}`);
-    return chosen;
   })();
 
   try {
