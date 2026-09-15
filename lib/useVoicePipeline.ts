@@ -14,6 +14,19 @@ interface SpeechQueue {
   clear: () => void;
 }
 
+// A handle on one sentence's in-flight audio playback. `finished` resolves
+// only on the element's own `ended` or `error` event — never on `pause`,
+// which the HTML spec also fires at the natural end of playback (right
+// before `ended`) and which raced with `currentTime` reaching `duration`
+// in the old code, occasionally revoking the blob URL a hair before the
+// tail of the clip had actually finished playing. `stop()` is the one
+// deliberate way to cut a sentence short (barge-in); nothing else may
+// pause the element.
+interface PlaybackHandle {
+  finished: Promise<void>;
+  stop: () => void;
+}
+
 // A tool call the model wants us to make, fully assembled from possibly
 // many streamed delta fragments (see streamChat's accumulator below).
 interface ParsedToolCall {
@@ -70,7 +83,11 @@ export function useVoicePipeline(): VoicePipeline {
   const vadRafRef = useRef<number | null>(null);
   const silenceStartRef = useRef<number | null>(null);
   const speechStartedAtRef = useRef<number>(0);
-  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  // The handle for whatever sentence is *currently* playing, so barge-in has
+  // exactly one thing to stop. Only ever set by drain() (see
+  // createSpeechQueue below) and cleared by that same handle's own
+  // settlement or by SpeechQueue.clear().
+  const playbackRef = useRef<PlaybackHandle | null>(null);
   const stoppingRef = useRef(false);
   const speechQueueRef = useRef<SpeechQueue | null>(null);
 
@@ -136,10 +153,10 @@ export function useVoicePipeline(): VoicePipeline {
     }
 
     if (store.getState().pipelineState === "speaking") {
-      // Barge-in: cut playback, drop any still-queued sentences, and go
-      // straight to listening.
-      audioElRef.current?.pause();
-      store.getState().setPlaybackLevel(0);
+      // Barge-in: a single cancellation path. clear() both stops whatever
+      // sentence is currently playing (via playbackRef) and drops anything
+      // still queued behind it — there's deliberately no separate pause()
+      // call here that could race it.
       speechQueueRef.current?.clear();
     }
 
@@ -521,11 +538,18 @@ export function useVoicePipeline(): VoicePipeline {
     let finished = false;
     let cleared = false;
 
+    // Strictly sequential: the while loop only ever holds one playback
+    // handle at a time, and always awaits handle.finished — which resolves
+    // only on that element's own ended/error — before shifting the next
+    // sentence off the queue. There is no path that starts a new play()
+    // call while a previous one is still in flight.
     async function drain() {
       if (draining) return;
       draining = true;
+      console.debug(`[speech-queue] drain start, ${queue.length} queued`);
       while (queue.length > 0 && !cleared) {
         const sentence = queue.shift()!;
+        console.debug(`[speech-queue] dequeued, ${queue.length} remaining`);
         const clean = sanitizeForSpeech(sentence);
         if (!clean) continue;
         if (store.getState().pipelineState !== "speaking") {
@@ -534,9 +558,21 @@ export function useVoicePipeline(): VoicePipeline {
         try {
           const res = await callWithRetry(() => synthesize(clean), "Speech synthesis");
           if (cleared) break;
-          await playAudioBlob(res);
+          console.debug(`[speech-queue] playback start: "${clean}"`);
+          const handle = startPlayback(res);
+          playbackRef.current = handle;
+          await handle.finished;
+          playbackRef.current = null;
+          // A barge-in can resolve handle.finished (via stop()) partway
+          // through — don't log this sentence as having actually played.
+          if (cleared) {
+            console.debug(`[speech-queue] playback interrupted: "${clean}"`);
+            break;
+          }
+          console.debug(`[speech-queue] playback end: "${clean}"`);
           pushLog("TTS played.");
         } catch (err) {
+          playbackRef.current = null;
           handlePipelineError(err, "Speech synthesis");
           queue.length = 0;
           draining = false;
@@ -544,6 +580,7 @@ export function useVoicePipeline(): VoicePipeline {
         }
       }
       draining = false;
+      console.debug(`[speech-queue] drain end (cleared=${cleared}, finished=${finished})`);
       if ((finished || cleared) && queue.length === 0 && store.getState().pipelineState === "speaking") {
         store.getState().setPipelineState("idle");
       }
@@ -553,6 +590,7 @@ export function useVoicePipeline(): VoicePipeline {
       push(sentence) {
         if (cleared) return;
         queue.push(sentence);
+        console.debug(`[speech-queue] enqueued, ${queue.length} pending`);
         void drain();
       },
       finish() {
@@ -564,6 +602,12 @@ export function useVoicePipeline(): VoicePipeline {
       clear() {
         cleared = true;
         queue.length = 0;
+        // The one and only cancellation path: stop whatever's actually
+        // playing right now (a no-op if we're between sentences, mid-fetch
+        // of the next one). Nothing else is allowed to touch playbackRef.
+        playbackRef.current?.stop();
+        playbackRef.current = null;
+        console.debug("[speech-queue] cleared (barge-in)");
       },
     };
   }
@@ -578,47 +622,67 @@ export function useVoicePipeline(): VoicePipeline {
     return res.blob();
   }
 
-  function playAudioBlob(blob: Blob): Promise<void> {
-    return new Promise((resolve) => {
-      const ctx = getAudioCtx();
-      const url = URL.createObjectURL(blob);
-      const el = new Audio(url);
-      audioElRef.current = el;
+  // Starts one audio element playing and returns a handle to it. `finished`
+  // resolves only on `ended` or `error` — see PlaybackHandle above for why
+  // `pause` is never used to detect completion. `stop()` is the only
+  // sanctioned way to cut playback short.
+  function startPlayback(blob: Blob): PlaybackHandle {
+    const ctx = getAudioCtx();
+    const url = URL.createObjectURL(blob);
+    const el = new Audio(url);
 
-      const source = ctx.createMediaElementSource(el);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
+    const source = ctx.createMediaElementSource(el);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+    analyser.connect(ctx.destination);
 
-      const data = new Uint8Array(analyser.fftSize);
-      let raf: number;
-      const pump = () => {
-        analyser.getByteTimeDomainData(data);
-        let sumSquares = 0;
-        for (let i = 0; i < data.length; i++) {
-          const centered = (data[i] - 128) / 128;
-          sumSquares += centered * centered;
-        }
-        store.getState().setPlaybackLevel(Math.sqrt(sumSquares / data.length));
-        raf = requestAnimationFrame(pump);
-      };
+    const data = new Uint8Array(analyser.fftSize);
+    let raf: number;
+    const pump = () => {
+      analyser.getByteTimeDomainData(data);
+      let sumSquares = 0;
+      for (let i = 0; i < data.length; i++) {
+        const centered = (data[i] - 128) / 128;
+        sumSquares += centered * centered;
+      }
+      store.getState().setPlaybackLevel(Math.sqrt(sumSquares / data.length));
       raf = requestAnimationFrame(pump);
+    };
+    raf = requestAnimationFrame(pump);
 
-      const cleanup = () => {
-        cancelAnimationFrame(raf);
-        store.getState().setPlaybackLevel(0);
-        URL.revokeObjectURL(url);
-        resolve();
-      };
-
-      el.onended = cleanup;
-      el.onerror = cleanup;
-      el.onpause = () => {
-        if (el.currentTime > 0 && el.currentTime < el.duration) cleanup();
-      };
-      void el.play();
+    let settled = false;
+    let resolveFinished: () => void;
+    const finished = new Promise<void>((resolve) => {
+      resolveFinished = resolve;
     });
+
+    const settle = (reason: "ended" | "error" | "stopped") => {
+      if (settled) return;
+      settled = true;
+      cancelAnimationFrame(raf);
+      store.getState().setPlaybackLevel(0);
+      URL.revokeObjectURL(url);
+      console.debug(`[speech] playback settled (${reason})`);
+      resolveFinished();
+    };
+
+    el.onended = () => settle("ended");
+    el.onerror = () => settle("error");
+    void el.play();
+
+    return {
+      finished,
+      stop() {
+        if (settled) return;
+        el.pause();
+        settle("stopped");
+      },
+    };
+  }
+
+  async function playAudioBlob(blob: Blob): Promise<void> {
+    await startPlayback(blob).finished;
   }
 
   // -- One-off boot line, gated behind a user click to satisfy autoplay policy.
@@ -705,6 +769,7 @@ export function useVoicePipeline(): VoicePipeline {
   useEffect(() => {
     return () => {
       teardownMic();
+      playbackRef.current?.stop();
       audioCtxRef.current?.close().catch(() => {});
     };
   }, [teardownMic]);
