@@ -1,4 +1,4 @@
-import { fetchWithRetry } from "./http";
+import { assertAsciiHeaderValue, fetchWithRetry } from "./http";
 
 // Groq's OpenAI-compatible API. Keys are read here only — this module must
 // never be imported from a client component.
@@ -32,7 +32,7 @@ function requireApiKey(): string {
       "GROQ_API_KEY is not set. Add it to .env.local — see .env.example."
     );
   }
-  return key;
+  return assertAsciiHeaderValue("GROQ_API_KEY", key);
 }
 
 let cachedChatModel: string | null = null;

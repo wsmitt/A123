@@ -1,4 +1,4 @@
-import { fetchWithRetry } from "./http";
+import { assertAsciiHeaderValue, fetchWithRetry } from "./http";
 
 const FISH_TTS_URL = "https://api.fish.audio/v1/tts";
 
@@ -37,9 +37,12 @@ function requireVoiceId(): string {
  * buffering the whole clip in memory.
  */
 export async function synthesizeSpeech(text: string): Promise<Response> {
-  const key = requireApiKey();
+  const key = assertAsciiHeaderValue("FISH_AUDIO_API_KEY", requireApiKey());
   const voiceId = requireVoiceId();
-  const model = process.env.FISH_TTS_MODEL || "s2.1-pro-free";
+  const model = assertAsciiHeaderValue(
+    "FISH_TTS_MODEL",
+    process.env.FISH_TTS_MODEL || "s2.1-pro-free"
+  );
 
   const res = await fetchWithRetry(FISH_TTS_URL, {
     method: "POST",

@@ -28,8 +28,12 @@ export function pickBootLine(): string {
   return BOOT_LINES[Math.floor(Math.random() * BOOT_LINES.length)];
 }
 
-// Strips markdown, emoji, and code fences before text is sent to TTS,
-// since the voice model will otherwise read symbols aloud.
+// Strips markdown and code fences, then normalizes the common typographic
+// unicode the model tends to output (smart quotes, em dashes, ellipses) to
+// plain ASCII before dropping everything else non-ASCII (emoji, decorative
+// glyphs like ● or ◯, box-drawing, etc). Fish Audio would otherwise try to
+// read those aloud, and a header built from unsanitized text can't carry
+// them at all — see lib/http.ts's assertAsciiHeaderValue.
 export function sanitizeForSpeech(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, " ")
@@ -39,10 +43,11 @@ export function sanitizeForSpeech(text: string): string {
     .replace(/_([^_]+)_/g, "$1")
     .replace(/#{1,6}\s*/g, "")
     .replace(/^[-*]\s+/gm, "")
-    .replace(
-      /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}]/gu,
-      ""
-    )
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, "-")
+    .replace(/…/g, "...")
+    .replace(/[^\x20-\x7e]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
