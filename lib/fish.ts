@@ -57,7 +57,12 @@ export async function synthesizeSpeech(text: string): Promise<Response> {
       format: "mp3",
       mp3_bitrate: 128,
       sample_rate: 44100,
-      latency: "normal",
+      // Every call here synthesizes one already-short sentence off the
+      // speech queue (see useVoicePipeline.ts's createSpeechQueue), never
+      // a long passage, so "normal"'s extra quality processing wasn't
+      // buying much — "balanced" is Fish's documented reduced-latency
+      // tier without dropping all the way to "low"'s lowest-quality mode.
+      latency: "balanced",
       chunk_length: 200,
       normalize: true,
       prosody: { speed: 1.0, volume: 0 },

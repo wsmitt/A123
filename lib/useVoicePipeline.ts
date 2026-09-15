@@ -220,9 +220,14 @@ export function useVoicePipeline(): VoicePipeline {
 
     store.getState().setPipelineState("transcribing");
     pushLog("Transcribing audio...");
+    // Elapsed-time marks from here through the first spoken sentence,
+    // logged to the console rather than RT-LOG so they're there to check
+    // when a response feels slow without cluttering the HUD.
+    const turnStart = performance.now();
 
     try {
       const transcript = await callWithRetry(() => transcribe(blob), "Transcription");
+      console.debug(`[latency] transcription: ${Math.round(performance.now() - turnStart)}ms`);
       if (!transcript.trim()) {
         pushLog("No speech detected.", "warn");
         store.getState().setPipelineState("idle");
@@ -230,7 +235,7 @@ export function useVoicePipeline(): VoicePipeline {
       }
       pushLog(`Transcript received: "${transcript}"`);
       store.getState().setTerminalCommand(transcript);
-      await think(transcript);
+      await think(transcript, turnStart);
     } catch (err) {
       handlePipelineError(err, "Transcription");
     }
@@ -349,7 +354,7 @@ export function useVoicePipeline(): VoicePipeline {
     };
   }
 
-  async function think(transcript: string) {
+  async function think(transcript: string, turnStart: number) {
     store.getState().setPipelineState("thinking");
     store.getState().setTerminalReply("");
     const userTurn: ChatTurn = { role: "user", content: transcript };
@@ -367,15 +372,24 @@ export function useVoicePipeline(): VoicePipeline {
     // Sentences are pushed into this queue the moment streamChat sees a
     // completed sentence boundary — JARVIS starts speaking well before the
     // full reply has finished streaming in, rather than waiting for it.
-    const speechQueue = createSpeechQueue();
+    const speechQueue = createSpeechQueue(turnStart);
     speechQueueRef.current = speechQueue;
+
+    let firstSentenceLogged = false;
+    const onSentence = (sentence: string) => {
+      if (!firstSentenceLogged) {
+        firstSentenceLogged = true;
+        console.debug(`[latency] first sentence ready: ${Math.round(performance.now() - turnStart)}ms`);
+      }
+      speechQueue.push(sentence);
+    };
 
     try {
       let finalReply = "";
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const result = await callWithRetry(
-          () => streamChat(wireMessages, (sentence) => speechQueue.push(sentence)),
+          () => streamChat(wireMessages, onSentence),
           "Chat"
         );
 
@@ -417,6 +431,7 @@ export function useVoicePipeline(): VoicePipeline {
       store.getState().addTurn(userTurn);
       store.getState().addTurn({ role: "assistant", content: finalReply });
       store.getState().setTerminalReply(finalReply);
+      console.debug(`[latency] full reply streamed: ${Math.round(performance.now() - turnStart)}ms`);
       pushLog("Model responded.");
       speechQueue.finish();
     } catch (err) {
@@ -532,33 +547,88 @@ export function useVoicePipeline(): VoicePipeline {
   // drops everything queued for a barge-in. Sentences arrive here from
   // streamChat's onSentence callback well before the full reply is done
   // streaming, which is what lets JARVIS start talking mid-response.
-  function createSpeechQueue(): SpeechQueue {
-    const queue: string[] = [];
+  //
+  // Synthesis and playback are two separate stages so the next sentence's
+  // audio can be ready the instant the current one finishes, instead of
+  // only being requested afterward: push() starts each sentence's /api/speak
+  // fetch immediately (a job), so by the time drain() gets around to it —
+  // still playing the sentence(s) ahead of it — it's usually already sitting
+  // there resolved. Playback itself stays strictly one-at-a-time: drain()
+  // always awaits the current handle's `finished` before moving to the
+  // next job, exactly as before.
+  function createSpeechQueue(turnStart: number): SpeechQueue {
+    interface SpeechJob {
+      clean: string;
+      abort: AbortController;
+      // null when the sentence sanitized to nothing (e.g. pure punctuation)
+      // — no fetch was ever started for it.
+      synthPromise: Promise<Blob> | null;
+    }
+
+    const queue: SpeechJob[] = [];
     let draining = false;
     let finished = false;
     let cleared = false;
+    let firstPlaybackLogged = false;
+
+    function startSynthJob(sentence: string): SpeechJob {
+      const clean = sanitizeForSpeech(sentence);
+      if (!clean) return { clean, abort: new AbortController(), synthPromise: null };
+
+      const abort = new AbortController();
+      const synthPromise = synthesizeWithRetry(clean, abort.signal);
+      // Nothing may ever consume this job's promise (a barge-in can drop it
+      // from the queue before drain() reaches it) — attach a no-op catch so
+      // an abort or a genuine failure never surfaces as an unhandled
+      // rejection. drain() still awaits the same promise itself below and
+      // sees the real value/error there; this doesn't swallow that.
+      synthPromise.catch(() => {});
+      return { clean, abort, synthPromise };
+    }
+
+    async function synthesizeWithRetry(text: string, signal: AbortSignal): Promise<Blob> {
+      try {
+        return await synthesize(text, signal);
+      } catch (err) {
+        // A barge-in deliberately aborted this fetch — don't retry work
+        // nobody wants anymore.
+        if (signal.aborted) throw err;
+        pushLog("Speech synthesis failed, retrying...", "warn");
+        await new Promise((r) => setTimeout(r, 800));
+        return synthesize(text, signal);
+      }
+    }
 
     // Strictly sequential: the while loop only ever holds one playback
     // handle at a time, and always awaits handle.finished — which resolves
-    // only on that element's own ended/error — before shifting the next
-    // sentence off the queue. There is no path that starts a new play()
-    // call while a previous one is still in flight.
+    // only on that element's own ended/error — before moving to the next
+    // job. There is no path that starts a new play() call while a previous
+    // one is still in flight. Synthesis, in contrast, is deliberately NOT
+    // sequential — see startSynthJob, called from push() below.
     async function drain() {
       if (draining) return;
       draining = true;
       console.debug(`[speech-queue] drain start, ${queue.length} queued`);
       while (queue.length > 0 && !cleared) {
-        const sentence = queue.shift()!;
+        const job = queue.shift()!;
         console.debug(`[speech-queue] dequeued, ${queue.length} remaining`);
-        const clean = sanitizeForSpeech(sentence);
-        if (!clean) continue;
+        if (!job.clean || !job.synthPromise) continue;
         if (store.getState().pipelineState !== "speaking") {
           store.getState().setPipelineState("speaking");
         }
         try {
-          const res = await callWithRetry(() => synthesize(clean), "Speech synthesis");
+          // Usually already resolved by now — its fetch started back when
+          // this sentence was pushed, not just now.
+          const res = await job.synthPromise;
           if (cleared) break;
-          console.debug(`[speech-queue] playback start: "${clean}"`);
+          console.debug(`[speech-queue] playback start: "${job.clean}"`);
+          if (!firstPlaybackLogged) {
+            firstPlaybackLogged = true;
+            // The metric that actually matters: wall-clock time from mic
+            // stop to the first audible word, covering transcription +
+            // chat + TTS synthesis end to end.
+            console.debug(`[latency] first audio playing: ${Math.round(performance.now() - turnStart)}ms`);
+          }
           const handle = startPlayback(res);
           playbackRef.current = handle;
           await handle.finished;
@@ -566,14 +636,15 @@ export function useVoicePipeline(): VoicePipeline {
           // A barge-in can resolve handle.finished (via stop()) partway
           // through — don't log this sentence as having actually played.
           if (cleared) {
-            console.debug(`[speech-queue] playback interrupted: "${clean}"`);
+            console.debug(`[speech-queue] playback interrupted: "${job.clean}"`);
             break;
           }
-          console.debug(`[speech-queue] playback end: "${clean}"`);
+          console.debug(`[speech-queue] playback end: "${job.clean}"`);
           pushLog("TTS played.");
         } catch (err) {
           playbackRef.current = null;
           handlePipelineError(err, "Speech synthesis");
+          for (const j of queue) j.abort.abort();
           queue.length = 0;
           draining = false;
           return;
@@ -589,8 +660,9 @@ export function useVoicePipeline(): VoicePipeline {
     return {
       push(sentence) {
         if (cleared) return;
-        queue.push(sentence);
-        console.debug(`[speech-queue] enqueued, ${queue.length} pending`);
+        const job = startSynthJob(sentence); // fires the /api/speak fetch now, not when dequeued
+        queue.push(job);
+        console.debug(`[speech-queue] enqueued, ${queue.length} pending, prefetch started`);
         void drain();
       },
       finish() {
@@ -601,10 +673,13 @@ export function useVoicePipeline(): VoicePipeline {
       },
       clear() {
         cleared = true;
+        // Cancel every not-yet-played sentence's in-flight/pending fetch —
+        // no point spending Fish Audio calls on audio nobody will hear.
+        for (const j of queue) j.abort.abort();
         queue.length = 0;
-        // The one and only cancellation path: stop whatever's actually
-        // playing right now (a no-op if we're between sentences, mid-fetch
-        // of the next one). Nothing else is allowed to touch playbackRef.
+        // The one and only playback cancellation path: stop whatever's
+        // actually playing right now (a no-op if we're between sentences).
+        // Nothing else is allowed to touch playbackRef.
         playbackRef.current?.stop();
         playbackRef.current = null;
         console.debug("[speech-queue] cleared (barge-in)");
@@ -612,11 +687,12 @@ export function useVoicePipeline(): VoicePipeline {
     };
   }
 
-  async function synthesize(text: string): Promise<Blob> {
+  async function synthesize(text: string, signal?: AbortSignal): Promise<Blob> {
     const res = await fetch("/api/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
+      signal,
     });
     if (!res.ok) throw await toApiError(res);
     return res.blob();

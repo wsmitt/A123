@@ -34,7 +34,7 @@ No database, no auth — everything lives in the browser tab.
    | `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) → API Keys | Powers both the chat model and Whisper transcription. |
    | `FISH_AUDIO_API_KEY` | [fish.audio](https://fish.audio) → API dashboard | Powers text-to-speech. |
    | `FISH_VOICE_ID` | Fish Audio → pick or clone a voice, copy its `reference_id` | Defaults to a sample voice ID; **swap this to change JARVIS's voice.** |
-   | `GROQ_CHAT_MODEL` | Optional | Leave blank to auto-discover a live chat model from your Groq account on first request. Set it to pin a specific model and skip discovery. |
+   | `GROQ_CHAT_MODEL` | Optional | Leave blank to use a known-good default immediately (no request is ever held up waiting on discovery); if that model is later retired, the app auto-discovers a replacement from your Groq account on the next request. Set it to pin a specific model. |
    | `GROQ_STT_MODEL` | Optional | Defaults to `whisper-large-v3-turbo`. |
    | `FISH_TTS_MODEL` | Optional | Defaults to `s2.1-pro-free`; change to `s2-pro` / `s1` depending on your plan. |
    | `TAVILY_API_KEY` | [tavily.com](https://tavily.com) → API Keys | Powers the `web_search` voice tool. Without it, a search attempt fails gracefully (JARVIS reports it can't reach the search, everything else keeps working). |
