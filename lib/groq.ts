@@ -7,8 +7,14 @@ const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 // Works out of the box with no GROQ_CHAT_MODEL env var set — discovery below
 // still runs (Groq rotates and deprecates model IDs), but this is always the
 // safety net, never "whatever came first in the account's model list".
-const DEFAULT_CHAT_MODEL = "llama-3.3-70b-versatile";
-const CHAT_MODEL_PREFERENCE = [DEFAULT_CHAT_MODEL, "llama-3.1-8b-instant"];
+// llama-3.3-70b-versatile and llama-3.1-8b-instant are Enterprise-only /
+// gone as of 2026-09 — verified against a live account's /models list.
+// These three are what's left that actually supports tool calling (i.e.
+// "tools" in supported_features), which toggle_defense_system needs;
+// everything else on a free account (allam-2-7b, groq/compound{,-mini})
+// only has json_mode and would silently break voice commands.
+const DEFAULT_CHAT_MODEL = "openai/gpt-oss-120b";
+const CHAT_MODEL_PREFERENCE = [DEFAULT_CHAT_MODEL, "openai/gpt-oss-20b", "qwen/qwen3.8-27b"];
 
 // Groq's /models endpoint lists every model the account can use, including
 // STT (whisper), TTS (orpheus, and anything with "tts"/"audio" in the id),
