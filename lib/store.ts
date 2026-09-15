@@ -31,6 +31,23 @@ interface JarvisStore {
   soundEnabled: boolean;
   enableSound: () => void;
 
+  // The real system power switch, toggled by tapping the radar's center
+  // hub. Off dims the whole HUD to standby (see .standby-dim) and disables
+  // the voice pipeline — this isn't cosmetic, JARVIS genuinely stops
+  // listening while powered down.
+  systemOn: boolean;
+  toggleSystemPower: () => void;
+
+  // Bell icon: really mutes lib/sfx.ts's click/boot tones, not just a
+  // decorative badge.
+  soundEffectsEnabled: boolean;
+  toggleSoundEffects: () => void;
+
+  // Gear icon: a manual override of prefers-reduced-motion, for anyone who
+  // wants the calmer HUD without changing an OS setting.
+  reducedMotionOverride: boolean;
+  toggleReducedMotionOverride: () => void;
+
   // Real audio amplitude, 0..1, sampled from the mic / playback AnalyserNodes.
   micLevel: number;
   playbackLevel: number;
@@ -100,6 +117,30 @@ export const useJarvisStore = create<JarvisStore>((set) => ({
 
   soundEnabled: false,
   enableSound: () => set({ soundEnabled: true }),
+
+  systemOn: true,
+  toggleSystemPower: () =>
+    set((s) => {
+      const next = !s.systemOn;
+      pushLog(next ? "System power restored." : "System powered down. Standing by.", next ? "info" : "warn");
+      return { systemOn: next };
+    }),
+
+  soundEffectsEnabled: true,
+  toggleSoundEffects: () =>
+    set((s) => {
+      const next = !s.soundEffectsEnabled;
+      pushLog(`Notification sounds ${next ? "enabled" : "muted"}.`);
+      return { soundEffectsEnabled: next };
+    }),
+
+  reducedMotionOverride: false,
+  toggleReducedMotionOverride: () =>
+    set((s) => {
+      const next = !s.reducedMotionOverride;
+      pushLog(`Reduced motion ${next ? "enabled" : "disabled"}.`);
+      return { reducedMotionOverride: next };
+    }),
 
   micLevel: 0,
   playbackLevel: 0,

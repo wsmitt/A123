@@ -1,5 +1,7 @@
 "use client";
 
+import { useJarvisStore } from "./store";
+
 // Lightweight synthesized UI sounds via Web Audio oscillators — no audio
 // assets to host or fetch. A separate, dedicated AudioContext from the one
 // in useVoicePipeline.ts keeps this module decoupled and callable from
@@ -39,11 +41,13 @@ function tone(freq: number, startAt: number, duration: number, gainPeak: number,
 
 /** A soft, short click — played whenever a tool call executes. */
 export function playClickSound(): void {
+  if (!useJarvisStore.getState().soundEffectsEnabled) return;
   tone(1400, 0, 0.05, 0.08, "square");
 }
 
 /** A rising three-note sweep — played once when the boot sequence starts. */
 export function playBootTone(): void {
+  if (!useJarvisStore.getState().soundEffectsEnabled) return;
   tone(320, 0, 0.18, 0.07, "sine");
   tone(640, 0.15, 0.28, 0.09, "sine");
   tone(960, 0.35, 0.32, 0.07, "sine");

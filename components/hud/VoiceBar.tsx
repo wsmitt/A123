@@ -31,12 +31,13 @@ export default function VoiceBar({ onToggle }: VoiceBarProps) {
   const micBlocked = useJarvisStore((s) => s.micBlocked);
   const micLevel = useJarvisStore((s) => s.micLevel);
   const playbackLevel = useJarvisStore((s) => s.playbackLevel);
+  const systemOn = useJarvisStore((s) => s.systemOn);
 
   const active = pipelineState === "listening" || pipelineState === "speaking";
   const level = pipelineState === "listening" ? micLevel : pipelineState === "speaking" ? playbackLevel : 0;
   const bars = useWaveformBars(level, active, 24);
 
-  const label = micBlocked ? "MIC BLOCKED" : STATUS_LABEL[pipelineState];
+  const label = !systemOn ? "SYSTEM OFFLINE" : micBlocked ? "MIC BLOCKED" : STATUS_LABEL[pipelineState];
   const amber = micBlocked || pipelineState === "error";
 
   return (
@@ -57,13 +58,15 @@ export default function VoiceBar({ onToggle }: VoiceBarProps) {
 
       <button
         onClick={onToggle}
-        className={`flex items-center gap-2 rounded-full border px-5 py-2 text-[11px] uppercase tracking-[0.12em] transition ${
+        disabled={!systemOn}
+        className={`flex items-center gap-2 rounded-full border px-5 py-2 text-[11px] uppercase tracking-[0.12em] transition disabled:cursor-not-allowed ${
           micBlocked ? "animate-[flash-amber_1.4s_ease-in-out_2]" : ""
         }`}
         style={{
           borderColor: amber ? "var(--amber)" : "var(--panel-border)",
-          color: amber ? "var(--amber)" : "var(--cyan)",
+          color: !systemOn ? "var(--cyan-dim)" : amber ? "var(--amber)" : "var(--cyan)",
           background: "var(--panel)",
+          opacity: systemOn ? 1 : 0.6,
         }}
       >
         <MicIcon />

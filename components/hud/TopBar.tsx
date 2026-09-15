@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { ASSISTANT_NAME, ASSISTANT_TAGLINE, USER_INITIAL, USER_NAME } from "@/lib/config";
 import { useJarvisStore } from "@/lib/store";
 
-function BellIcon() {
+function BellIcon({ muted }: { muted: boolean }) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
       <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+      {muted && <path d="M3 3l18 18" strokeLinecap="round" />}
     </svg>
   );
 }
@@ -37,10 +38,12 @@ function useClock(): string {
 // CRITICAL automatically renders in red because it reuses var(--cyan),
 // which alert mode (shield engaged) already overrides HUD-wide.
 function useThreatLevel(): { label: string; color: string; dim: boolean } {
+  const systemOn = useJarvisStore((s) => s.systemOn);
   const pipelineState = useJarvisStore((s) => s.pipelineState);
   const alertMode = useJarvisStore((s) => s.defenseSystems.shield);
   const degraded = useJarvisStore((s) => s.degraded);
 
+  if (!systemOn) return { label: "OFFLINE", color: "var(--cyan-dim)", dim: true };
   if (alertMode) return { label: "CRITICAL", color: "var(--cyan)", dim: false };
   if (degraded) return { label: "ELEVATED", color: "var(--amber)", dim: false };
   if (pipelineState !== "idle") return { label: "ACTIVE", color: "var(--cyan)", dim: false };
@@ -51,7 +54,11 @@ export default function TopBar() {
   const time = useClock();
   const degraded = useJarvisStore((s) => s.degraded);
   const retryAfter = useJarvisStore((s) => s.retryAfter);
-  const standby = useJarvisStore((s) => !s.defenseSystems.power);
+  const standby = useJarvisStore((s) => !s.systemOn);
+  const soundEffectsEnabled = useJarvisStore((s) => s.soundEffectsEnabled);
+  const toggleSoundEffects = useJarvisStore((s) => s.toggleSoundEffects);
+  const reducedMotionOverride = useJarvisStore((s) => s.reducedMotionOverride);
+  const toggleReducedMotionOverride = useJarvisStore((s) => s.toggleReducedMotionOverride);
   const threat = useThreatLevel();
 
   return (
@@ -119,14 +126,24 @@ export default function TopBar() {
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
         <button
-          aria-label="Notifications"
-          className="hidden text-cyan-dim transition hover:text-cyan sm:block"
+          onClick={toggleSoundEffects}
+          aria-pressed={!soundEffectsEnabled}
+          aria-label={soundEffectsEnabled ? "Mute notification sounds" : "Unmute notification sounds"}
+          title={soundEffectsEnabled ? "Notification sounds on" : "Notification sounds muted"}
+          className="hidden transition hover:text-cyan sm:block"
+          style={{ color: soundEffectsEnabled ? "var(--cyan-dim)" : "var(--amber)" }}
         >
-          <BellIcon />
+          <BellIcon muted={!soundEffectsEnabled} />
         </button>
         <button
-          aria-label="Settings"
-          className="hidden text-cyan-dim transition hover:text-cyan sm:block"
+          onClick={toggleReducedMotionOverride}
+          aria-pressed={reducedMotionOverride}
+          aria-label={
+            reducedMotionOverride ? "Disable reduced motion" : "Enable reduced motion"
+          }
+          title={reducedMotionOverride ? "Reduced motion on" : "Reduced motion off"}
+          className="hidden transition hover:text-cyan sm:block"
+          style={{ color: reducedMotionOverride ? "var(--cyan)" : "var(--cyan-dim)" }}
         >
           <GearIcon />
         </button>
