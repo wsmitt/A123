@@ -32,8 +32,21 @@ body {
   background: var(--bg);
   color: var(--cyan-dim);
   font-family: var(--font-mono);
-  overflow: hidden;
+  /* Below md the HUD stacks into a single vertically-scrolling column; at
+     md+ it's a fixed-viewport dashboard with no page scroll. overflow-x
+     must be pinned explicitly — leaving it unset while overflow-y is auto
+     gets both axes auto-promoted per the CSS overflow spec, which turns
+     any clipped-but-wide decorative element (the ECG trace, radar glow)
+     into unwanted horizontal scroll. */
+  overflow-x: hidden;
+  overflow-y: auto;
   position: relative;
+}
+
+@media (min-width: 768px) {
+  body {
+    overflow: hidden;
+  }
 }
 
 /* Subtle 40px dot/grid overlay */

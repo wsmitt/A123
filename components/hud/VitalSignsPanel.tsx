@@ -16,7 +16,10 @@ function ecgPoints(offsetX: number): string {
 
 function EcgWave() {
   return (
-    <div className="h-10 w-full overflow-hidden">
+    // min-w-0 matters here: the svg's intrinsic width (200% for the seamless
+    // scroll loop) would otherwise force this flex-nested ancestor chain
+    // wider than the viewport, even though overflow-hidden clips the paint.
+    <div className="h-10 w-full min-w-0 overflow-hidden">
       <svg
         viewBox="0 0 480 40"
         preserveAspectRatio="none"

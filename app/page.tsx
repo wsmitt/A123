@@ -44,44 +44,55 @@ export default function Page() {
   }
 
   return (
-    <main className="relative flex h-screen flex-col gap-4 p-5">
+    // Below md (768px) the page is a normal scrolling single column with a
+    // fixed mic bar at the bottom; at md+ it's the fixed-viewport HUD grid.
+    <main className="relative flex min-h-screen flex-col gap-4 p-4 pb-28 md:h-screen md:overflow-hidden md:p-5 md:pb-5">
       {!soundEnabled && gateVisible && <SoundGate onEnable={handleEnableSound} />}
 
       <TopBar />
 
-      <div className="grid min-h-0 flex-1 grid-cols-12 gap-4">
-        <div className="col-span-12 flex min-h-0 flex-col gap-4 lg:col-span-3">
-          <div className="flex-[1.2]">
+      <div className="flex min-w-0 flex-1 flex-col gap-4 md:grid md:min-h-0 md:grid-cols-12">
+        <div className="flex min-w-0 flex-col gap-4 md:col-span-3 md:min-h-0">
+          <div className="md:flex-[1.2]">
             <VitalSignsPanel />
           </div>
-          <div className="flex-1">
+          <div className="md:flex-1">
             <ResourceMonitorPanel />
           </div>
-          <div className="flex-1">
+          <div className="md:flex-1">
             <NetworkPanel />
           </div>
         </div>
 
-        <div className="col-span-12 flex min-h-0 flex-col items-center justify-between lg:col-span-6">
-          <div className="flex w-full flex-1 items-center justify-center">
+        <div className="flex min-w-0 flex-col items-center gap-4 md:col-span-6 md:min-h-0 md:justify-between">
+          <div className="w-full md:flex md:flex-1 md:items-center md:justify-center">
             <CoreRadar />
           </div>
-          <div className="pb-4">
+          {/* Mic control is docked at md+; below md it moves to the fixed
+              bottom bar so it stays reachable while the page scrolls. */}
+          <div className="hidden pb-4 md:flex">
             <VoiceBar onToggle={toggleListening} />
           </div>
         </div>
 
-        <div className="col-span-12 flex min-h-0 flex-col gap-4 lg:col-span-3">
-          <div className="flex-1">
+        <div className="flex min-w-0 flex-col gap-4 md:col-span-3 md:min-h-0">
+          <div className="md:flex-1">
             <ArmorStatusPanel />
           </div>
-          <div className="flex-[1.4]">
+          <div className="md:flex-[1.4]">
             <SystemLogPanel />
           </div>
-          <div className="flex-1">
+          <div className="md:flex-1">
             <TerminalPanel />
           </div>
         </div>
+      </div>
+
+      <div
+        className="fixed inset-x-0 bottom-0 z-40 border-t px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 md:hidden"
+        style={{ borderColor: "var(--panel-border)", background: "var(--panel)" }}
+      >
+        <VoiceBar onToggle={toggleListening} />
       </div>
     </main>
   );

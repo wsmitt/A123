@@ -27,7 +27,7 @@ export default function Panel({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay, ease: "easeOut" }}
-      className={`relative flex flex-col rounded-[2px] border p-4 ${className}`}
+      className={`relative flex min-w-0 flex-col rounded-[2px] border p-4 ${className}`}
       style={{ borderColor: "var(--panel-border)", background: "var(--panel)" }}
     >
       <span
@@ -46,11 +46,11 @@ export default function Panel({
       </span>
 
       <div
-        className="flex items-baseline justify-between border-b pb-1.5 pr-6"
+        className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 border-b pb-1.5 pr-6"
         style={{ borderColor: "var(--panel-border)" }}
       >
-        <span className="hud-label">SYSTEM //</span>
-        <span className="hud-label">{tag}</span>
+        <span className="hud-label whitespace-nowrap">SYSTEM //</span>
+        <span className="hud-label whitespace-nowrap">{tag}</span>
       </div>
       <div className="hud-redacted select-none py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-dim/70">
         {redactedLabel}

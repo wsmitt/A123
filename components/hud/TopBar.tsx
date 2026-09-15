@@ -40,28 +40,31 @@ export default function TopBar() {
 
   return (
     <div
-      className="flex h-16 shrink-0 items-center justify-between border px-6"
+      className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-2 border px-3 sm:px-6"
       style={{ borderColor: "var(--panel-border)", background: "var(--panel)" }}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <span
           aria-hidden
-          className="inline-block h-3 w-3 rotate-45"
+          className="inline-block h-3 w-3 shrink-0 rotate-45"
           style={{ background: "var(--cyan)", boxShadow: "var(--glow)" }}
         />
-        <div>
-          <div className="text-[18px] font-semibold tracking-[0.15em] text-cyan">
+        <div className="min-w-0">
+          <div className="truncate text-[16px] font-semibold tracking-[0.15em] text-cyan sm:text-[18px]">
             {ASSISTANT_NAME}
           </div>
-          <div className="text-[9px] uppercase tracking-[0.1em]" style={{ color: "var(--text-muted)" }}>
+          <div
+            className="hidden truncate text-[9px] uppercase tracking-[0.1em] lg:block"
+            style={{ color: "var(--text-muted)" }}
+          >
             {ASSISTANT_TAGLINE}
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-8">
+      <div className="hidden items-center gap-4 lg:flex xl:gap-8">
         <div className="flex items-center gap-2">
-          <span className="hud-label">System Status</span>
+          <span className="hud-label hidden xl:inline">System Status</span>
           <span
             aria-hidden
             className={`h-1.5 w-1.5 rounded-full ${degraded ? "" : "animate-pulse"}`}
@@ -75,26 +78,34 @@ export default function TopBar() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="hud-label">Local Time</span>
+          <span className="hud-label hidden xl:inline">Local Time</span>
           <span className="text-[11px] font-semibold tracking-[0.1em] text-cyan">{time}</span>
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
-        <button aria-label="Notifications" className="text-cyan-dim transition hover:text-cyan">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+        <button
+          aria-label="Notifications"
+          className="hidden text-cyan-dim transition hover:text-cyan sm:block"
+        >
           <BellIcon />
         </button>
-        <button aria-label="Settings" className="text-cyan-dim transition hover:text-cyan">
+        <button
+          aria-label="Settings"
+          className="hidden text-cyan-dim transition hover:text-cyan sm:block"
+        >
           <GearIcon />
         </button>
         <div
-          className="flex items-center gap-2 rounded-full border px-3 py-1"
+          className="flex items-center gap-2 rounded-full border px-2 py-1 sm:px-3"
           style={{ borderColor: "var(--panel-border)" }}
         >
-          <span className="text-[11px] tracking-[0.08em] text-cyan-dim">{USER_NAME}</span>
+          <span className="hidden text-[11px] tracking-[0.08em] text-cyan-dim sm:inline">
+            {USER_NAME}
+          </span>
           <span
             aria-hidden
-            className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold text-cyan"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-cyan"
             style={{ background: "var(--cyan-faint)" }}
           >
             {USER_INITIAL}
