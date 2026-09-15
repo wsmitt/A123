@@ -49,7 +49,7 @@ export default function VoiceBar({ onToggle }: VoiceBarProps) {
             style={{
               height: `${Math.max(3, h * 40)}px`,
               background: "var(--cyan)",
-              boxShadow: h > 0.45 ? "0 0 6px rgba(0,212,255,0.7)" : "none",
+              boxShadow: h > 0.45 ? "0 0 6px rgba(var(--cyan-rgb),0.7)" : "none",
             }}
           />
         ))}

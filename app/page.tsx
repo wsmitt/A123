@@ -32,6 +32,7 @@ export default function Page() {
   const { toggleListening, playBoot } = useVoicePipeline();
   const soundEnabled = useJarvisStore((s) => s.soundEnabled);
   const enableSound = useJarvisStore((s) => s.enableSound);
+  const alertMode = useJarvisStore((s) => s.defenseSystems.shield);
   const [gateVisible, setGateVisible] = useState(true);
 
   useMetrics();
@@ -46,7 +47,10 @@ export default function Page() {
   return (
     // Below md (768px) the page is a normal scrolling single column with a
     // fixed mic bar at the bottom; at md+ it's the fixed-viewport HUD grid.
-    <main className="relative flex min-h-screen flex-col gap-4 p-4 pb-28 md:h-screen md:overflow-hidden md:p-5 md:pb-5">
+    <main
+      className="relative flex min-h-screen flex-col gap-4 p-4 pb-28 md:h-screen md:overflow-hidden md:p-5 md:pb-5"
+      data-alert={alertMode ? "true" : undefined}
+    >
       {!soundEnabled && gateVisible && <SoundGate onEnable={handleEnableSound} />}
 
       <TopBar />

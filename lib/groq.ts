@@ -20,9 +20,20 @@ export class GroqApiError extends Error {
   }
 }
 
+export interface ToolCallPayload {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+// "tool" role and tool_calls/tool_call_id support the toggle_defense_system
+// round trip: an assistant message can carry tool_calls with null content,
+// and each "tool" message reports one call's result back to the model.
 export interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  tool_calls?: ToolCallPayload[];
+  tool_call_id?: string;
 }
 
 function requireApiKey(): string {
@@ -87,9 +98,14 @@ async function isModelUnavailableError(res: Response): Promise<boolean> {
 
 /**
  * Streams a chat completion from Groq. Returns the raw fetch Response so the
- * route handler can pipe its SSE body straight through to the client.
+ * route handler can pipe its SSE body straight through to the client. If
+ * `tools` is given, Groq's streamed deltas will include `tool_calls`
+ * fragments the client accumulates itself — see useVoicePipeline.ts.
  */
-export async function streamChatCompletion(messages: ChatMessage[]): Promise<Response> {
+export async function streamChatCompletion(
+  messages: ChatMessage[],
+  tools?: unknown
+): Promise<Response> {
   const key = requireApiKey();
   let model = await discoverChatModel();
 
@@ -108,6 +124,7 @@ export async function streamChatCompletion(messages: ChatMessage[]): Promise<Res
           stream: true,
           temperature: 0.7,
           max_tokens: 800,
+          ...(tools ? { tools, tool_choice: "auto" } : {}),
         }),
       },
       0 // never retry after a stream may have partially started

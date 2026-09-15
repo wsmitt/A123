@@ -32,14 +32,14 @@ function EcgWave() {
           fill="none"
           stroke="var(--cyan)"
           strokeWidth="1.5"
-          style={{ filter: "drop-shadow(0 0 3px rgba(0,212,255,0.6))" }}
+          style={{ filter: "drop-shadow(0 0 3px rgba(var(--cyan-rgb),0.6))" }}
         />
         <polyline
           points={ecgPoints(240)}
           fill="none"
           stroke="var(--cyan)"
           strokeWidth="1.5"
-          style={{ filter: "drop-shadow(0 0 3px rgba(0,212,255,0.6))" }}
+          style={{ filter: "drop-shadow(0 0 3px rgba(var(--cyan-rgb),0.6))" }}
         />
       </svg>
     </div>

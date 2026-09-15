@@ -1,9 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { DEFENSE_LABELS, isDefenseKey } from "./defenseSystems";
+import type { ChatMessage, ToolCallPayload } from "./groq";
 import { pushLog } from "./logBus";
 import { sanitizeForSpeech } from "./persona";
 import { useJarvisStore, type ChatTurn } from "./store";
+
+// A tool call the model wants us to make, fully assembled from possibly
+// many streamed delta fragments (see streamChat's accumulator below).
+interface ParsedToolCall {
+  id: string;
+  name: string;
+  argsText: string;
+  arguments: Record<string, unknown>;
+}
+
+interface StreamChatResult {
+  content: string;
+  toolCalls: ParsedToolCall[];
+}
+
+// A single tool-calling round trip can chain at most this many times before
+// we force a final answer — a safety valve against a model that keeps
+// calling tools instead of ever replying.
+const MAX_TOOL_ROUNDS = 4;
 
 // ---------------------------------------------------------------------------
 // Voice activity detection tuning. RMS is 0..1; below SILENCE_THRESHOLD for
@@ -189,29 +210,121 @@ export function useVoicePipeline(): VoicePipeline {
     return data.text;
   }
 
+  // Applies one tool call to app state via the exact same handler a manual
+  // button tap uses (store.setDefenseSystem), so voice and touch can never
+  // fall out of sync. Every call is logged regardless of outcome; returns
+  // the "tool" role message reporting the result back to the model.
+  function applyToolCall(call: ParsedToolCall): ChatMessage {
+    if (call.name !== "toggle_defense_system") {
+      pushLog(`Unknown tool call: ${call.name}`, "warn");
+      return {
+        role: "tool",
+        tool_call_id: call.id,
+        content: JSON.stringify({ status: "error", message: "Unknown tool" }),
+      };
+    }
+
+    const system = call.arguments.system;
+    const rawState = call.arguments.state;
+    pushLog(`Tool call: toggle_defense_system(${String(system)}, ${String(rawState)})`);
+
+    if (!isDefenseKey(system)) {
+      pushLog(`Tool call rejected: unknown system "${String(system)}".`, "warn");
+      return {
+        role: "tool",
+        tool_call_id: call.id,
+        content: JSON.stringify({ status: "error", message: "Unknown system" }),
+      };
+    }
+    if (rawState !== "on" && rawState !== "off") {
+      pushLog(`Tool call rejected: invalid state "${String(rawState)}".`, "warn");
+      return {
+        role: "tool",
+        tool_call_id: call.id,
+        content: JSON.stringify({ status: "error", message: "Invalid state" }),
+      };
+    }
+
+    store.getState().setDefenseSystem(system, rawState === "on");
+    return {
+      role: "tool",
+      tool_call_id: call.id,
+      content: JSON.stringify({
+        status: "ok",
+        system,
+        state: rawState,
+        label: DEFENSE_LABELS[system],
+      }),
+    };
+  }
+
   async function think(transcript: string) {
     store.getState().setPipelineState("thinking");
     store.getState().setTerminalReply("");
     const userTurn: ChatTurn = { role: "user", content: transcript };
-    const turnsForRequest = [...store.getState().turns, userTurn];
+
+    // Ephemeral wire history for this request only. Tool-call/tool-result
+    // messages never enter the persisted `turns` in store.ts (capped at 12
+    // and reused as context for future turns), so later turns don't need
+    // to re-see raw tool-call JSON — only the model's final, in-persona
+    // reply is remembered, exactly as if it had answered directly.
+    let wireMessages: ChatMessage[] = [...store.getState().turns, userTurn].map((t) => ({
+      role: t.role,
+      content: t.content,
+    }));
 
     try {
-      const reply = await callWithRetry(() => streamChat(turnsForRequest), "Chat");
+      let finalReply = "";
+
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        const result = await callWithRetry(() => streamChat(wireMessages), "Chat");
+
+        if (result.toolCalls.length === 0) {
+          finalReply = result.content;
+          break;
+        }
+
+        pushLog(
+          `Model invoked ${result.toolCalls.length} tool call${
+            result.toolCalls.length > 1 ? "s" : ""
+          }.`
+        );
+
+        const assistantToolMessage: ChatMessage = {
+          role: "assistant",
+          content: result.content || null,
+          tool_calls: result.toolCalls.map(
+            (tc): ToolCallPayload => ({
+              id: tc.id,
+              type: "function",
+              function: { name: tc.name, arguments: tc.argsText },
+            })
+          ),
+        };
+        const toolResultMessages = result.toolCalls.map(applyToolCall);
+        wireMessages = [...wireMessages, assistantToolMessage, ...toolResultMessages];
+
+        if (round === MAX_TOOL_ROUNDS - 1) {
+          // Force a final answer rather than looping forever.
+          finalReply = result.content || "Done, sir.";
+        }
+      }
+
       store.getState().addTurn(userTurn);
-      store.getState().addTurn({ role: "assistant", content: reply });
-      store.getState().setTerminalReply(reply);
+      store.getState().addTurn({ role: "assistant", content: finalReply });
+      store.getState().setTerminalReply(finalReply);
       pushLog("Model responded.");
-      await speak(reply);
+      await speak(finalReply);
     } catch (err) {
       handlePipelineError(err, "Chat");
     }
   }
 
-  async function streamChat(turns: ChatTurn[]): Promise<string> {
+  async function streamChat(messages: ChatMessage[]): Promise<StreamChatResult> {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: turns }),
+      body: JSON.stringify({ messages }),
     });
     if (!res.ok || !res.body) throw await toApiError(res);
 
@@ -219,6 +332,10 @@ export function useVoicePipeline(): VoicePipeline {
     const decoder = new TextDecoder();
     let full = "";
     let buffer = "";
+    // Streamed tool_calls arrive in fragments keyed by index — name and id
+    // typically land in the first fragment, arguments accumulate across
+    // several as the model streams out the JSON piece by piece.
+    const toolCallAcc: Record<number, { id: string; name: string; argsText: string }> = {};
 
     while (true) {
       const { done, value } = await reader.read();
@@ -233,17 +350,41 @@ export function useVoicePipeline(): VoicePipeline {
         if (payload === "[DONE]") continue;
         try {
           const json = JSON.parse(payload);
-          const delta: string = json.choices?.[0]?.delta?.content ?? "";
-          if (delta) {
-            full += delta;
+          const delta = json.choices?.[0]?.delta ?? {};
+          const contentDelta: string = delta.content ?? "";
+          if (contentDelta) {
+            full += contentDelta;
             store.getState().setTerminalReply(full);
+          }
+          const toolCallDeltas = delta.tool_calls;
+          if (Array.isArray(toolCallDeltas)) {
+            for (const tc of toolCallDeltas) {
+              const idx: number = tc.index ?? 0;
+              if (!toolCallAcc[idx]) toolCallAcc[idx] = { id: "", name: "", argsText: "" };
+              if (tc.id) toolCallAcc[idx].id = tc.id;
+              if (tc.function?.name) toolCallAcc[idx].name = tc.function.name;
+              if (tc.function?.arguments) toolCallAcc[idx].argsText += tc.function.arguments;
+            }
           }
         } catch {
           // ignore partial/non-JSON keep-alive lines
         }
       }
     }
-    return full.trim();
+
+    const toolCalls: ParsedToolCall[] = Object.values(toolCallAcc)
+      .filter((tc) => tc.name)
+      .map((tc) => {
+        let parsedArgs: Record<string, unknown> = {};
+        try {
+          parsedArgs = tc.argsText ? JSON.parse(tc.argsText) : {};
+        } catch {
+          parsedArgs = {};
+        }
+        return { id: tc.id, name: tc.name, argsText: tc.argsText, arguments: parsedArgs };
+      });
+
+    return { content: full.trim(), toolCalls };
   }
 
   // -- SPEAKING ---------------------------------------------------------------

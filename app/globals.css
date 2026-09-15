@@ -9,6 +9,7 @@
   --grid-line: rgba(0, 212, 255, 0.07);
   --cyan: #00d4ff;
   --cyan-dim: #1a7f99;
+  --cyan-rgb: 0, 212, 255;
   --cyan-faint: rgba(0, 212, 255, 0.35);
   --text-muted: #4a6a7a;
   --glow: 0 0 12px rgba(0, 212, 255, 0.45);
@@ -16,6 +17,21 @@
 
   --font-mono: ui-monospace, "JetBrains Mono", "Share Tech Mono", "IBM Plex Mono",
     "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+/* Alert mode: shield engaged swaps the HUD's cyan accent identity for red.
+   Every component reads these same custom properties (via Tailwind's
+   cyan/cyan-dim/cyan-faint utilities or inline styles), so overriding them
+   here on a single ancestor re-themes the whole page with no per-component
+   changes needed — plain CSS custom-property cascade. */
+[data-alert="true"] {
+  --panel-border: rgba(255, 59, 59, 0.25);
+  --grid-line: rgba(255, 59, 59, 0.09);
+  --cyan: #ff3b3b;
+  --cyan-dim: #b33a3a;
+  --cyan-rgb: 255, 59, 59;
+  --cyan-faint: rgba(255, 59, 59, 0.35);
+  --glow: 0 0 12px rgba(255, 59, 59, 0.55);
 }
 
 * {

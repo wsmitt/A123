@@ -1,6 +1,8 @@
 "use client";
 
 import { create } from "zustand";
+import { DEFENSE_LABELS, type DefenseKey } from "./defenseSystems";
+import { pushLog } from "./logBus";
 
 export type PipelineState =
   | "idle"
@@ -43,6 +45,13 @@ interface JarvisStore {
   terminalReply: string;
   setTerminalCommand: (cmd: string) => void;
   setTerminalReply: (reply: string) => void;
+
+  // The single state handler for all four DEFENSE SYSTEMS buttons — a
+  // physical tap and a voice-command tool call both call this, so the
+  // button, the system log, and alert mode (shield => red HUD) can never
+  // fall out of sync with each other.
+  defenseSystems: Record<DefenseKey, boolean>;
+  setDefenseSystem: (key: DefenseKey, on: boolean) => void;
 
   // Real host + session metrics, polled from /api/metrics.
   cpuLoadPct: number;
@@ -96,6 +105,14 @@ export const useJarvisStore = create<JarvisStore>((set) => ({
   terminalReply: "",
   setTerminalCommand: (terminalCommand) => set({ terminalCommand }),
   setTerminalReply: (terminalReply) => set({ terminalReply }),
+
+  defenseSystems: { shield: false, power: true, signal: true, reactor: false },
+  setDefenseSystem: (key, on) =>
+    set((s) => {
+      if (s.defenseSystems[key] === on) return {};
+      pushLog(`${DEFENSE_LABELS[key]} ${on ? "engaged" : "disengaged"}.`);
+      return { defenseSystems: { ...s.defenseSystems, [key]: on } };
+    }),
 
   cpuLoadPct: 0,
   memUsedGB: 0,

@@ -62,8 +62,8 @@ export default function TopBar() {
         </div>
       </div>
 
-      <div className="hidden items-center gap-4 lg:flex xl:gap-8">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 sm:gap-4 md:gap-6 xl:gap-8">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <span className="hud-label hidden xl:inline">System Status</span>
           <span
             aria-hidden
@@ -71,15 +71,17 @@ export default function TopBar() {
             style={{ background: degraded ? "var(--amber)" : "var(--cyan)" }}
           />
           <span
-            className="text-[11px] font-semibold tracking-[0.1em]"
+            className="whitespace-nowrap text-[10px] font-semibold tracking-[0.1em] sm:text-[11px]"
             style={{ color: degraded ? "var(--amber)" : "var(--cyan)" }}
           >
             {degraded ? `DEGRADED${retryAfter ? ` (${retryAfter}s)` : ""}` : "OPTIMAL"}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <span className="hud-label hidden xl:inline">Local Time</span>
-          <span className="text-[11px] font-semibold tracking-[0.1em] text-cyan">{time}</span>
+          <span className="whitespace-nowrap text-[10px] font-semibold tracking-[0.1em] text-cyan sm:text-[11px]">
+            {time}
+          </span>
         </div>
       </div>
 

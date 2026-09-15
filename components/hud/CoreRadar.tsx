@@ -76,7 +76,7 @@ export default function CoreRadar() {
           stroke="var(--cyan)"
           strokeWidth="2.5"
           strokeLinecap="round"
-          style={{ filter: "drop-shadow(0 0 4px rgba(0,212,255,0.85))" }}
+          style={{ filter: "drop-shadow(0 0 4px rgba(var(--cyan-rgb),0.85))" }}
         />
         <path
           d={arcPath(200, 200, 190, 208, 244)}
@@ -84,7 +84,7 @@ export default function CoreRadar() {
           stroke="var(--cyan)"
           strokeWidth="2.5"
           strokeLinecap="round"
-          style={{ filter: "drop-shadow(0 0 4px rgba(0,212,255,0.85))" }}
+          style={{ filter: "drop-shadow(0 0 4px rgba(var(--cyan-rgb),0.85))" }}
         />
       </svg>
 
@@ -93,7 +93,7 @@ export default function CoreRadar() {
         className="absolute inset-0 rounded-full"
         style={{
           background:
-            "conic-gradient(from 0deg, transparent 0deg, rgba(0,212,255,0.3) 16deg, transparent 44deg)",
+            "conic-gradient(from 0deg, transparent 0deg, rgba(var(--cyan-rgb),0.3) 16deg, transparent 44deg)",
           animation: `radar-sweep ${sweepDuration}s linear infinite`,
         }}
       />
@@ -102,7 +102,7 @@ export default function CoreRadar() {
         className="relative z-10 flex h-24 w-24 flex-col items-center justify-center rounded-full border"
         style={{
           borderColor: "var(--cyan-faint)",
-          background: "rgba(0,212,255,0.04)",
+          background: "rgba(var(--cyan-rgb),0.04)",
           transform: `scale(${centerScale})`,
           transition: "transform 0.1s ease-out",
         }}

@@ -48,7 +48,7 @@ function Row({ icon, label, value, pct }: { icon: ReactNode; label: string; valu
           style={{
             width: `${clamped}%`,
             background: "var(--cyan)",
-            boxShadow: "1px 0 6px 1px rgba(0,212,255,0.7)",
+            boxShadow: "1px 0 6px 1px rgba(var(--cyan-rgb),0.7)",
           }}
         />
       </div>
