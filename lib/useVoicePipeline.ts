@@ -220,9 +220,14 @@ export function useVoicePipeline(): VoicePipeline {
 
     store.getState().setPipelineState("transcribing");
     pushLog("Transcribing audio...");
+    // Elapsed-time marks from here through the first spoken sentence,
+    // logged to the console rather than RT-LOG so they're there to check
+    // when a response feels slow without cluttering the HUD.
+    const turnStart = performance.now();
 
     try {
       const transcript = await callWithRetry(() => transcribe(blob), "Transcription");
+      console.debug(`[latency] transcription: ${Math.round(performance.now() - turnStart)}ms`);
       if (!transcript.trim()) {
         pushLog("No speech detected.", "warn");
         store.getState().setPipelineState("idle");
@@ -230,7 +235,7 @@ export function useVoicePipeline(): VoicePipeline {
       }
       pushLog(`Transcript received: "${transcript}"`);
       store.getState().setTerminalCommand(transcript);
-      await think(transcript);
+      await think(transcript, turnStart);
     } catch (err) {
       handlePipelineError(err, "Transcription");
     }
@@ -349,7 +354,7 @@ export function useVoicePipeline(): VoicePipeline {
     };
   }
 
-  async function think(transcript: string) {
+  async function think(transcript: string, turnStart: number) {
     store.getState().setPipelineState("thinking");
     store.getState().setTerminalReply("");
     const userTurn: ChatTurn = { role: "user", content: transcript };
@@ -367,15 +372,24 @@ export function useVoicePipeline(): VoicePipeline {
     // Sentences are pushed into this queue the moment streamChat sees a
     // completed sentence boundary — JARVIS starts speaking well before the
     // full reply has finished streaming in, rather than waiting for it.
-    const speechQueue = createSpeechQueue();
+    const speechQueue = createSpeechQueue(turnStart);
     speechQueueRef.current = speechQueue;
+
+    let firstSentenceLogged = false;
+    const onSentence = (sentence: string) => {
+      if (!firstSentenceLogged) {
+        firstSentenceLogged = true;
+        console.debug(`[latency] first sentence ready: ${Math.round(performance.now() - turnStart)}ms`);
+      }
+      speechQueue.push(sentence);
+    };
 
     try {
       let finalReply = "";
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const result = await callWithRetry(
-          () => streamChat(wireMessages, (sentence) => speechQueue.push(sentence)),
+          () => streamChat(wireMessages, onSentence),
           "Chat"
         );
 
@@ -417,6 +431,7 @@ export function useVoicePipeline(): VoicePipeline {
       store.getState().addTurn(userTurn);
       store.getState().addTurn({ role: "assistant", content: finalReply });
       store.getState().setTerminalReply(finalReply);
+      console.debug(`[latency] full reply streamed: ${Math.round(performance.now() - turnStart)}ms`);
       pushLog("Model responded.");
       speechQueue.finish();
     } catch (err) {
@@ -532,11 +547,12 @@ export function useVoicePipeline(): VoicePipeline {
   // drops everything queued for a barge-in. Sentences arrive here from
   // streamChat's onSentence callback well before the full reply is done
   // streaming, which is what lets JARVIS start talking mid-response.
-  function createSpeechQueue(): SpeechQueue {
+  function createSpeechQueue(turnStart: number): SpeechQueue {
     const queue: string[] = [];
     let draining = false;
     let finished = false;
     let cleared = false;
+    let firstPlaybackLogged = false;
 
     // Strictly sequential: the while loop only ever holds one playback
     // handle at a time, and always awaits handle.finished — which resolves
@@ -559,6 +575,13 @@ export function useVoicePipeline(): VoicePipeline {
           const res = await callWithRetry(() => synthesize(clean), "Speech synthesis");
           if (cleared) break;
           console.debug(`[speech-queue] playback start: "${clean}"`);
+          if (!firstPlaybackLogged) {
+            firstPlaybackLogged = true;
+            // The metric that actually matters: wall-clock time from mic
+            // stop to the first audible word, covering transcription +
+            // chat + TTS synthesis end to end.
+            console.debug(`[latency] first audio playing: ${Math.round(performance.now() - turnStart)}ms`);
+          }
           const handle = startPlayback(res);
           playbackRef.current = handle;
           await handle.finished;
