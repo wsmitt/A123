@@ -45,7 +45,8 @@ export default function Page() {
   const soundEnabled = useJarvisStore((s) => s.soundEnabled);
   const enableSound = useJarvisStore((s) => s.enableSound);
   const alertMode = useJarvisStore((s) => s.defenseSystems.shield);
-  const standby = useJarvisStore((s) => !s.defenseSystems.power);
+  const standby = useJarvisStore((s) => !s.systemOn);
+  const reducedMotionOverride = useJarvisStore((s) => s.reducedMotionOverride);
   const [gateVisible, setGateVisible] = useState(true);
 
   useMetrics();
@@ -73,6 +74,7 @@ export default function Page() {
     <main
       className="relative flex min-h-screen flex-col gap-4 p-4 pb-28 md:h-screen md:overflow-hidden md:p-5 md:pb-5"
       data-alert={alertMode ? "true" : undefined}
+      data-reduced-motion={reducedMotionOverride ? "true" : undefined}
     >
       {!soundEnabled && gateVisible && <SoundGate onEnable={handleEnableSound} />}
 

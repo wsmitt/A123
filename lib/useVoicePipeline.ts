@@ -127,6 +127,14 @@ export function useVoicePipeline(): VoicePipeline {
 
   // -- LISTENING ------------------------------------------------------------
   const startListening = useCallback(async () => {
+    if (!store.getState().systemOn) {
+      // The radar's center hub is the real power switch — every entry
+      // point into listening (click, spacebar, barge-in) funnels through
+      // here, so this one guard covers all of them.
+      pushLog("Can't listen — system is powered down.", "warn");
+      return;
+    }
+
     if (store.getState().pipelineState === "speaking") {
       // Barge-in: cut playback, drop any still-queued sentences, and go
       // straight to listening.

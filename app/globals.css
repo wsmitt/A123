@@ -150,13 +150,14 @@ body::after {
   }
 }
 
-/* Standby mode: toggled by the ArmorStatus power button (a real action, not
-   decorative) — dims every glow, border and text under it uniformly via
-   filter, since that's one property instead of touching every component's
-   colors individually. Applied to a few separate elements (never to a
-   common ancestor of the fixed mobile mic bar) because `filter` makes its
-   element the containing block for fixed-position descendants, which would
-   otherwise break the mic bar's viewport-fixed positioning. */
+/* Standby mode: toggled by tapping the radar's center hub, the HUD's real
+   system power switch (see store.ts's systemOn) — dims every glow, border
+   and text under it uniformly via filter, since that's one property
+   instead of touching every component's colors individually. Applied to a
+   few separate elements (never to a common ancestor of the fixed mobile
+   mic bar) because `filter` makes its element the containing block for
+   fixed-position descendants, which would otherwise break the mic bar's
+   viewport-fixed positioning. */
 .standby-dim {
   filter: brightness(0.35) saturate(0.55);
   transition: filter 0.6s ease;
@@ -244,4 +245,18 @@ body::after {
   .scanline {
     display: none;
   }
+}
+
+/* Gear icon in the top bar: a manual override of the media query above, for
+   anyone who wants the calmer HUD without changing an OS-level setting. */
+[data-reduced-motion="true"] *,
+[data-reduced-motion="true"] *::before,
+[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+[data-reduced-motion="true"] .scanline {
+  display: none;
 }

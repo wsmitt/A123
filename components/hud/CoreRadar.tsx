@@ -22,12 +22,14 @@ function RadarContact({
   driftSec,
   reverse,
   pingDelay,
-}: (typeof RADAR_CONTACTS)[number]) {
+  running,
+}: (typeof RADAR_CONTACTS)[number] & { running: boolean }) {
   return (
     <g
       style={{
         transformOrigin: "200px 200px",
         animation: `radar-contact-drift ${driftSec}s linear infinite${reverse ? " reverse" : ""}`,
+        animationPlayState: running ? "running" : "paused",
       }}
     >
       <g transform={`rotate(${angle} 200 200)`}>
@@ -43,6 +45,7 @@ function RadarContact({
             transformBox: "fill-box",
             transformOrigin: "center",
             animation: `radar-ping 2.6s ease-out ${pingDelay}s infinite`,
+            animationPlayState: running ? "running" : "paused",
           }}
         />
       </g>
@@ -63,11 +66,15 @@ function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: nu
 
 // The radar reacts to the voice pipeline's real state: idle dims and slows,
 // listening flexes the rings with real mic amplitude, thinking speeds the
-// sweep, and speaking pulses the core with real playback amplitude.
+// sweep, and speaking pulses the core with real playback amplitude. The
+// center hub is also the HUD's real power switch — tapping it is the same
+// systemOn toggle the standby dimming and voice pipeline gate read from.
 export default function CoreRadar() {
   const pipelineState = useJarvisStore((s) => s.pipelineState);
   const micLevel = useJarvisStore((s) => s.micLevel);
   const playbackLevel = useJarvisStore((s) => s.playbackLevel);
+  const systemOn = useJarvisStore((s) => s.systemOn);
+  const toggleSystemPower = useJarvisStore((s) => s.toggleSystemPower);
 
   const sweepDuration = pipelineState === "thinking" ? 1.2 : 4;
   const listening = pipelineState === "listening";
@@ -76,6 +83,7 @@ export default function CoreRadar() {
 
   const ringScale = listening ? 1 + Math.min(0.14, micLevel * 1.6) : 1;
   const centerScale = speaking ? 1 + Math.min(0.3, playbackLevel * 2.2) : 1;
+  const animPlayState = systemOn ? "running" : "paused";
 
   return (
     <div className="relative mx-auto flex aspect-square w-full max-w-[420px] items-center justify-center">
@@ -93,7 +101,13 @@ export default function CoreRadar() {
         className="absolute inset-0 h-full w-full"
         style={{ opacity: idle ? 0.55 : 1, transition: "opacity 0.6s ease-out" }}
       >
-        <g style={{ transformOrigin: "200px 200px", animation: "radar-spin-slow 60s linear infinite" }}>
+        <g
+          style={{
+            transformOrigin: "200px 200px",
+            animation: "radar-spin-slow 60s linear infinite",
+            animationPlayState: animPlayState,
+          }}
+        >
           <circle cx="200" cy="200" r="190" fill="none" stroke="var(--cyan-faint)" strokeWidth="1" strokeDasharray="4 9" />
         </g>
         <circle
@@ -131,7 +145,7 @@ export default function CoreRadar() {
           style={{ filter: "drop-shadow(0 0 4px rgba(var(--cyan-rgb),0.85))" }}
         />
         {RADAR_CONTACTS.map((contact, i) => (
-          <RadarContact key={i} {...contact} />
+          <RadarContact key={i} {...contact} running={systemOn} />
         ))}
       </svg>
 
@@ -142,16 +156,20 @@ export default function CoreRadar() {
           background:
             "conic-gradient(from 0deg, transparent 0deg, rgba(var(--cyan-rgb),0.3) 16deg, transparent 44deg)",
           animation: `radar-sweep ${sweepDuration}s linear infinite`,
+          animationPlayState: animPlayState,
         }}
       />
 
-      <div
-        className="relative z-10 flex h-24 w-24 flex-col items-center justify-center rounded-full border"
+      <button
+        onClick={toggleSystemPower}
+        aria-pressed={systemOn}
+        aria-label={systemOn ? "Power down JARVIS" : "Restore JARVIS power"}
+        className="relative z-10 flex h-24 w-24 flex-col items-center justify-center rounded-full border transition"
         style={{
           borderColor: "var(--cyan-faint)",
           background: "rgba(var(--cyan-rgb),0.04)",
           transform: `scale(${centerScale})`,
-          transition: "transform 0.1s ease-out",
+          transition: "transform 0.1s ease-out, border-color 0.3s ease",
         }}
       >
         <div className="mb-1.5 grid grid-cols-3 gap-[3px]">
@@ -161,9 +179,9 @@ export default function CoreRadar() {
         </div>
         <div className="text-center text-[11px] font-medium leading-tight text-cyan">
           <div>CORE</div>
-          <div>{pipelineState === "error" ? "ERROR" : "ACTIVE"}</div>
+          <div>{!systemOn ? "STANDBY" : pipelineState === "error" ? "ERROR" : "ACTIVE"}</div>
         </div>
-      </div>
+      </button>
     </div>
   );
 }

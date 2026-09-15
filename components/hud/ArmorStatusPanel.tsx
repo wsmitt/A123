@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import Panel from "./Panel";
 import { ARMOR_TAG } from "@/lib/config";
 import { useDecorativeDrift } from "@/lib/decorative";
@@ -64,11 +65,44 @@ export default function ArmorStatusPanel({ delay = 0 }: { delay?: number }) {
   const structural = useDecorativeDrift(100, 96, 100, 0.15, 3000); // decorative
   const defenseSystems = useJarvisStore((s) => s.defenseSystems);
   const setDefenseSystem = useJarvisStore((s) => s.setDefenseSystem);
+  const [expanded, setExpanded] = useState(false);
+
+  // Real interaction, if modest: min/max of the actually-observed session,
+  // not just a second copy of the current reading.
+  const powerRange = useRef({ min: powerCore, max: powerCore });
+  powerRange.current.min = Math.min(powerRange.current.min, powerCore);
+  powerRange.current.max = Math.max(powerRange.current.max, powerCore);
+  const structuralRange = useRef({ min: structural, max: structural });
+  structuralRange.current.min = Math.min(structuralRange.current.min, structural);
+  structuralRange.current.max = Math.max(structuralRange.current.max, structural);
 
   return (
     <Panel tag={ARMOR_TAG} redactedLabel="SUIT TELEMETRY // LOCKED" className="h-full" delay={delay}>
-      <Stat label="Power Core" value={powerCore} />
-      <Stat label="Structural" value={structural} />
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="block w-full text-left"
+      >
+        <Stat label="Power Core" value={powerCore} />
+        <Stat label="Structural" value={structural} />
+      </button>
+
+      {expanded && (
+        <div className="mb-3 grid grid-cols-2 gap-2 text-[10px]">
+          <div className="flex justify-between">
+            <span className="hud-label">Core Min/Max</span>
+            <span className="text-cyan-dim">
+              {Math.round(powerRange.current.min)}–{Math.round(powerRange.current.max)}%
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="hud-label">Hull Min/Max</span>
+            <span className="text-cyan-dim">
+              {Math.round(structuralRange.current.min)}–{Math.round(structuralRange.current.max)}%
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="mt-2 hud-label">Defense Systems</div>
       <div className="mt-2 grid grid-cols-4 gap-2">
