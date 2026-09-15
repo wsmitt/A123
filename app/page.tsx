@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ArmorStatusPanel from "@/components/hud/ArmorStatusPanel";
 import CoreRadar from "@/components/hud/CoreRadar";
 import NetworkPanel from "@/components/hud/NetworkPanel";
@@ -12,9 +12,21 @@ import VitalSignsPanel from "@/components/hud/VitalSignsPanel";
 import VoiceBar from "@/components/hud/VoiceBar";
 import { pushLog } from "@/lib/logBus";
 import { pickBootLine } from "@/lib/persona";
+import { playBootTone } from "@/lib/sfx";
 import { useJarvisStore } from "@/lib/store";
 import { useMetrics } from "@/lib/useMetrics";
 import { useVoicePipeline } from "@/lib/useVoicePipeline";
+
+// Visual boot sequence: panels fade in staggered by these delays (seconds),
+// and this scripted log types itself out over the same span — runs
+// immediately on load, no gesture needed since it's silent.
+const BOOT_LOG_LINES = [
+  "Initializing core systems...",
+  "Calibrating primary sensor array...",
+  "Establishing satellite uplink...",
+  "Loading defense protocols...",
+  "Boot sequence complete.",
+];
 
 function SoundGate({ onEnable }: { onEnable: () => void }) {
   return (
@@ -33,14 +45,25 @@ export default function Page() {
   const soundEnabled = useJarvisStore((s) => s.soundEnabled);
   const enableSound = useJarvisStore((s) => s.enableSound);
   const alertMode = useJarvisStore((s) => s.defenseSystems.shield);
+  const standby = useJarvisStore((s) => !s.defenseSystems.power);
   const [gateVisible, setGateVisible] = useState(true);
 
   useMetrics();
 
+  // Silent visual half of the boot sequence — the typewriter log lines run
+  // immediately, no autoplay-policy gesture required. The spoken half (the
+  // rising tone + JARVIS's greeting) waits for Enable Audio below.
+  useEffect(() => {
+    const timers = BOOT_LOG_LINES.map((line, i) =>
+      setTimeout(() => pushLog(line), 300 + i * 450)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
   function handleEnableSound() {
     enableSound();
     setGateVisible(false);
-    pushLog("System integrity check complete.");
+    playBootTone();
     playBoot(pickBootLine());
   }
 
@@ -55,16 +78,20 @@ export default function Page() {
 
       <TopBar />
 
-      <div className="flex min-w-0 flex-1 flex-col gap-4 md:grid md:min-h-0 md:grid-cols-12">
+      <div
+        className={`flex min-w-0 flex-1 flex-col gap-4 md:grid md:min-h-0 md:grid-cols-12 ${
+          standby ? "standby-dim" : ""
+        }`}
+      >
         <div className="flex min-w-0 flex-col gap-4 md:col-span-3 md:min-h-0">
           <div className="md:flex-[1.2]">
-            <VitalSignsPanel />
+            <VitalSignsPanel delay={0} />
           </div>
           <div className="md:flex-1">
-            <ResourceMonitorPanel />
+            <ResourceMonitorPanel delay={0.08} />
           </div>
           <div className="md:flex-1">
-            <NetworkPanel />
+            <NetworkPanel delay={0.16} />
           </div>
         </div>
 
@@ -81,19 +108,21 @@ export default function Page() {
 
         <div className="flex min-w-0 flex-col gap-4 md:col-span-3 md:min-h-0">
           <div className="md:flex-1">
-            <ArmorStatusPanel />
+            <ArmorStatusPanel delay={0.06} />
           </div>
           <div className="md:flex-[1.4]">
-            <SystemLogPanel />
+            <SystemLogPanel delay={0.14} />
           </div>
           <div className="md:flex-1">
-            <TerminalPanel />
+            <TerminalPanel delay={0.22} />
           </div>
         </div>
       </div>
 
       <div
-        className="fixed inset-x-0 bottom-0 z-40 border-t px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 md:hidden"
+        className={`fixed inset-x-0 bottom-0 z-40 border-t px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 md:hidden ${
+          standby ? "standby-dim" : ""
+        }`}
         style={{ borderColor: "var(--panel-border)", background: "var(--panel)" }}
       >
         <VoiceBar onToggle={toggleListening} />

@@ -37,6 +37,7 @@ No database, no auth — everything lives in the browser tab.
    | `GROQ_CHAT_MODEL` | Optional | Leave blank to auto-discover a live chat model from your Groq account on first request. Set it to pin a specific model and skip discovery. |
    | `GROQ_STT_MODEL` | Optional | Defaults to `whisper-large-v3-turbo`. |
    | `FISH_TTS_MODEL` | Optional | Defaults to `s2.1-pro-free`; change to `s2-pro` / `s1` depending on your plan. |
+   | `TAVILY_API_KEY` | [tavily.com](https://tavily.com) → API Keys | Powers the `web_search` voice tool. Without it, a search attempt fails gracefully (JARVIS reports it can't reach the search, everything else keeps working). |
 
    All keys are read server-side only (inside `app/api/**/route.ts`), and the
    dev server fails loudly at request time with a readable error if one is
@@ -82,11 +83,69 @@ IDLE → LISTENING → TRANSCRIBING → THINKING → SPEAKING → IDLE
 - **THINKING** — the transcript is appended to the last 12 turns and POSTed
   to `/api/chat`, which streams the reply back as SSE; tokens render live in
   the terminal panel as they arrive.
-- **SPEAKING** — the full reply is sanitized (markdown/emoji/code stripped,
-  since it's read aloud) and POSTed to `/api/speak` (Fish Audio); playback
-  runs through a second `AnalyserNode` so the HUD pulses to JARVIS's own
-  voice. Clicking the mic while JARVIS is speaking is a barge-in: playback
-  stops immediately and recording starts.
+- **SPEAKING** — sentences are spoken as soon as they're complete, not after
+  the whole reply finishes streaming: `streamChat` detects each `. `/`! `/`? `
+  boundary in the growing SSE buffer and pushes it into a per-turn speech
+  queue immediately (`createSpeechQueue` in `lib/useVoicePipeline.ts`), which
+  synthesizes and plays sentences back-to-back while later ones may still be
+  streaming in. Each sentence is sanitized (markdown/emoji/code stripped,
+  since it's read aloud) before `/api/speak` (Fish Audio); playback runs
+  through a second `AnalyserNode` so the HUD pulses to JARVIS's own voice.
+  Clicking the mic while JARVIS is speaking is a barge-in: playback stops
+  immediately, the rest of the queued sentences are dropped, and recording
+  starts.
+
+### Tool calling (voice commands)
+
+Every `/api/chat` request carries the tool schema in `lib/tools.ts`. The
+client accumulates streamed `tool_calls` deltas, executes each one, and — for
+`toggle_defense_system` — round-trips the result back to the model for an
+in-persona confirmation before speaking it (no hardcoded "confirmed" text).
+A tool call that doesn't happen never gets a spoken confirmation invented for
+it.
+
+- **`toggle_defense_system(system, state)`** — shield / power / signal /
+  reactor. Runs through the exact same `store.setDefenseSystem` handler a
+  physical tap on the DEFENSE SYSTEMS buttons uses, so voice and touch can
+  never disagree. Turning the shield on switches the whole HUD from cyan to
+  red (see "Alert mode" below); turning power off dims everything (see
+  "Standby mode").
+- **`web_search(query)`** — calls Tavily (`lib/tavily.ts`,
+  `app/api/tools/search/route.ts`) server-side, since `TAVILY_API_KEY` can
+  never reach the client.
+- **`launch_missiles(target)`** — theatrical only: logs a dramatic sequence
+  to RT-LOG and speaks a confirmation. No real system is touched; see the
+  tool's description in `lib/tools.ts`.
+
+Every tool call is logged to RT-LOG regardless of outcome (including
+rejected/invalid ones), and gets a short synthesized click sound
+(`lib/sfx.ts`, plain Web Audio oscillators — no audio assets to host).
+
+## Alert mode
+
+Engaging the shield sets `data-alert="true"` on `<main>`, which overrides
+`--cyan`/`--cyan-dim`/`--cyan-rgb`/`--panel-border`/`--grid-line`/`--glow` in
+`app/globals.css`. Every component reads those same custom properties (via
+Tailwind's `cyan`/`cyan-dim`/`cyan-faint` utilities or inline styles), so the
+whole HUD re-themes from cyan to red with no per-component changes.
+
+## Standby mode
+
+Turning the Power Grid defense button off sets `standby-dim` (a `filter:
+brightness()/saturate()` with a smooth transition) on the main content and
+the mobile mic bar — real dimming of every glow, border, and text under it,
+not just an opacity toggle on one element. It's applied to those two
+elements directly rather than a shared ancestor, since `filter` makes its
+element the containing block for `position: fixed` descendants, which would
+otherwise break the mic bar's viewport-fixed positioning on mobile.
+
+## Boot sequence
+
+On load, a scripted RT-LOG sequence types itself out (`app/page.tsx`) while
+the nine panels fade in staggered (`Panel`'s `delay` prop) — this runs
+immediately, no gesture needed. The spoken half — a synthesized rising tone
+plus JARVIS's greeting — waits for the **Enable Audio** click, same as
+everywhere else audio needs a user gesture to satisfy autoplay policy.
 
 ## Real vs. decorative data
 
@@ -102,7 +161,16 @@ last command and reply, and every waveform/radar amplitude.
 
 **Decorative, with slow believable drift, never a jump:** heart rate, body
 temperature, neural link, armor status (power core / structural), and the
-defense-system toggles.
+radar contacts' drift/ping timing. The defense-system toggles' on/off state
+is real app state (see "Tool calling" above) even though the values they
+represent (shield, reactor, etc.) are fictional.
+
+**Every panel does something real when tapped**, not just the ones with
+obviously real data: RT-MONITOR expands to show real host uptime/platform/
+Node version; UP-LINK triggers an actual fresh ping against `/api/metrics`;
+VITAL SIGNS expands to a real session min/max of the observed (decorative)
+heart-rate stream; RT-LOG has a real Clear action; the terminal's reply can
+be copied to the clipboard.
 
 ## Error handling
 
@@ -117,10 +185,6 @@ defense-system toggles.
 
 ## Known gaps / stretch goals not implemented
 
-- **Streaming TTS**: `/api/speak` synthesizes and streams back one full
-  reply per turn rather than the optional sentence-by-sentence /
-  WebSocket-streaming approach the brief calls out as a further
-  optimization.
 - **Wake word** ("Hey JARVIS" via the Web Speech API) is the brief's
   explicitly optional stretch goal and isn't wired up.
 - `npm audit` flags advisories against the `next@14` line (fixed only in

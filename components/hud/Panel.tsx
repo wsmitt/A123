@@ -10,6 +10,9 @@ interface PanelProps {
   className?: string;
   bodyClassName?: string;
   delay?: number;
+  /** When set, the whole panel becomes a real tap target (e.g. expand/collapse). */
+  onClick?: () => void;
+  clickLabel?: string;
 }
 
 // Shared panel frame: border, L-shaped corner brackets, header row with the
@@ -21,13 +24,31 @@ export default function Panel({
   className = "",
   bodyClassName = "",
   delay = 0,
+  onClick,
+  clickLabel,
 }: PanelProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay, ease: "easeOut" }}
-      className={`relative flex min-w-0 flex-col rounded-[2px] border p-4 ${className}`}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      aria-label={onClick ? clickLabel : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      className={`relative flex min-w-0 flex-col rounded-[2px] border p-4 transition-colors ${
+        onClick ? "panel-interactive cursor-pointer" : ""
+      } ${className}`}
       style={{ borderColor: "var(--panel-border)", background: "var(--panel)" }}
     >
       <span

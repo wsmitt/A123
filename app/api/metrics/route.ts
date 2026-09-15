@@ -18,6 +18,10 @@ export async function GET() {
     cpuLoadPct,
     memUsedGB: Number((usedMem / 1024 ** 3).toFixed(1)),
     memTotalGB: Number((totalMem / 1024 ** 3).toFixed(1)),
+    uptimeSec: Math.round(os.uptime()),
+    platform: os.platform(),
+    cpuCount: os.cpus().length,
+    nodeVersion: process.version,
     timestamp: Date.now(),
   });
 }

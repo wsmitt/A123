@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Panel from "./Panel";
 import { SAT_LINK_NAME } from "@/lib/config";
 import { useJarvisStore } from "@/lib/store";
@@ -13,13 +14,40 @@ function NoSignalIcon({ color }: { color: string }) {
   );
 }
 
-export default function NetworkPanel() {
+export default function NetworkPanel({ delay = 0 }: { delay?: number }) {
   const online = useJarvisStore((s) => s.online);
   const latencyMs = useJarvisStore((s) => s.latencyMs);
+  const setMetrics = useJarvisStore((s) => s.setMetrics);
+  const [pinging, setPinging] = useState(false);
   const color = online ? "var(--cyan-dim)" : "var(--amber)";
 
+  // Real: fires an actual request to /api/metrics and measures its own
+  // round trip, independent of the background 3s poll — a real re-ping on
+  // demand, not just re-showing the last cached number.
+  async function pingNow() {
+    if (pinging) return;
+    setPinging(true);
+    const start = performance.now();
+    try {
+      const res = await fetch("/api/metrics", { cache: "no-store" });
+      const measured = Math.round(performance.now() - start);
+      setMetrics({ latencyMs: res.ok ? measured : null, online: navigator.onLine });
+    } catch {
+      setMetrics({ latencyMs: null, online: navigator.onLine });
+    } finally {
+      setPinging(false);
+    }
+  }
+
   return (
-    <Panel tag="UP-LINK: 5GB/S" redactedLabel="COMMS ARRAY // LOCKED" className="h-full">
+    <Panel
+      tag="UP-LINK: 5GB/S"
+      redactedLabel="COMMS ARRAY // LOCKED"
+      className="h-full"
+      delay={delay}
+      onClick={() => void pingNow()}
+      clickLabel="Ping uplink now"
+    >
       <div className="flex h-full flex-col items-center justify-center gap-2 py-4 text-center">
         <NoSignalIcon color={color} />
         <div className="hud-label" style={{ color }}>
@@ -28,11 +56,9 @@ export default function NetworkPanel() {
         <div className="hud-redacted text-[10px] uppercase tracking-[0.1em] text-cyan-dim/70">
           {SAT_LINK_NAME}
         </div>
-        {online && latencyMs !== null && (
-          <div className="text-[9px] uppercase tracking-[0.1em] text-cyan-dim/60">
-            Ping {latencyMs}ms
-          </div>
-        )}
+        <div className="text-[9px] uppercase tracking-[0.1em] text-cyan-dim/60">
+          {pinging ? "Pinging..." : latencyMs !== null ? `Ping ${latencyMs}ms` : "Tap to ping"}
+        </div>
       </div>
     </Panel>
   );

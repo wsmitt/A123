@@ -62,6 +62,10 @@ interface JarvisStore {
   sessionBytes: number;
   online: boolean;
   latencyMs: number | null;
+  hostUptimeSec: number;
+  hostPlatform: string;
+  hostCpuCount: number;
+  hostNodeVersion: string;
   setMetrics: (
     m: Partial<
       Pick<
@@ -74,6 +78,10 @@ interface JarvisStore {
         | "sessionBytes"
         | "online"
         | "latencyMs"
+        | "hostUptimeSec"
+        | "hostPlatform"
+        | "hostCpuCount"
+        | "hostNodeVersion"
       >
     >
   ) => void;
@@ -122,5 +130,9 @@ export const useJarvisStore = create<JarvisStore>((set) => ({
   sessionBytes: 0,
   online: true,
   latencyMs: null,
+  hostUptimeSec: 0,
+  hostPlatform: "",
+  hostCpuCount: 0,
+  hostNodeVersion: "",
   setMetrics: (m) => set(m),
 }));

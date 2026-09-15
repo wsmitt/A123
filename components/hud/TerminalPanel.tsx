@@ -52,10 +52,22 @@ function useTypewriter(target: string): string {
   return displayed;
 }
 
-export default function TerminalPanel() {
+export default function TerminalPanel({ delay = 0 }: { delay?: number }) {
   const command = useJarvisStore((s) => s.terminalCommand);
   const reply = useJarvisStore((s) => s.terminalReply);
   const displayed = useTypewriter(reply);
+  const [copied, setCopied] = useState(false);
+
+  async function copyReply() {
+    if (!reply || typeof navigator === "undefined" || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(reply);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard permission denied — not worth surfacing as an error.
+    }
+  }
 
   return (
     <Panel
@@ -63,9 +75,20 @@ export default function TerminalPanel() {
       redactedLabel="SHELL SESSION // LOCKED"
       className="h-full"
       bodyClassName="flex min-h-0 flex-col"
+      delay={delay}
     >
-      <div className="text-[11px] text-cyan">
-        <span className="text-cyan-dim">{">_"}</span> {command}
+      <div className="flex items-baseline justify-between text-[11px] text-cyan">
+        <div className="min-w-0 truncate">
+          <span className="text-cyan-dim">{">_"}</span> {command}
+        </div>
+        {reply && (
+          <button
+            onClick={() => void copyReply()}
+            className="shrink-0 pl-2 text-[9px] uppercase tracking-[0.1em] text-cyan-dim/70 transition hover:text-cyan"
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+        )}
       </div>
       <div
         className="mt-2 flex-1 overflow-y-auto text-[11px] italic leading-relaxed"

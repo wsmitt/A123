@@ -59,14 +59,14 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-export default function ArmorStatusPanel() {
+export default function ArmorStatusPanel({ delay = 0 }: { delay?: number }) {
   const powerCore = useDecorativeDrift(98, 92, 100, 0.4, 2600); // decorative
   const structural = useDecorativeDrift(100, 96, 100, 0.15, 3000); // decorative
   const defenseSystems = useJarvisStore((s) => s.defenseSystems);
   const setDefenseSystem = useJarvisStore((s) => s.setDefenseSystem);
 
   return (
-    <Panel tag={ARMOR_TAG} redactedLabel="SUIT TELEMETRY // LOCKED" className="h-full">
+    <Panel tag={ARMOR_TAG} redactedLabel="SUIT TELEMETRY // LOCKED" className="h-full" delay={delay}>
       <Stat label="Power Core" value={powerCore} />
       <Stat label="Structural" value={structural} />
 

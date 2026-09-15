@@ -1,8 +1,14 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Panel from "./Panel";
 import { useJarvisStore } from "@/lib/store";
+
+function formatUptime(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return `${h}h ${m}m`;
+}
 
 function CpuIcon() {
   return (
@@ -56,14 +62,26 @@ function Row({ icon, label, value, pct }: { icon: ReactNode; label: string; valu
   );
 }
 
-export default function ResourceMonitorPanel() {
+export default function ResourceMonitorPanel({ delay = 0 }: { delay?: number }) {
   const cpuLoadPct = useJarvisStore((s) => s.cpuLoadPct);
   const memUsedGB = useJarvisStore((s) => s.memUsedGB);
   const memTotalGB = useJarvisStore((s) => s.memTotalGB);
   const storagePct = useJarvisStore((s) => s.storagePct);
+  const hostUptimeSec = useJarvisStore((s) => s.hostUptimeSec);
+  const hostPlatform = useJarvisStore((s) => s.hostPlatform);
+  const hostCpuCount = useJarvisStore((s) => s.hostCpuCount);
+  const hostNodeVersion = useJarvisStore((s) => s.hostNodeVersion);
+  const [expanded, setExpanded] = useState(false);
 
   return (
-    <Panel tag="RT-MONITOR" redactedLabel="SYSTEM RESOURCES // LOCKED" className="h-full">
+    <Panel
+      tag="RT-MONITOR"
+      redactedLabel="SYSTEM RESOURCES // LOCKED"
+      className="h-full"
+      delay={delay}
+      onClick={() => setExpanded((v) => !v)}
+      clickLabel={expanded ? "Collapse resource detail" : "Expand resource detail"}
+    >
       <Row icon={<CpuIcon />} label="CPU Load" value={`${cpuLoadPct}%`} pct={cpuLoadPct} />
       <Row
         icon={<MemoryIcon />}
@@ -72,6 +90,25 @@ export default function ResourceMonitorPanel() {
         pct={memTotalGB > 0 ? (memUsedGB / memTotalGB) * 100 : 0}
       />
       <Row icon={<StorageIcon />} label="Storage" value={`${storagePct}%`} pct={storagePct} />
+
+      {expanded && (
+        <div className="mt-1 space-y-1 border-t pt-2 text-[10px]" style={{ borderColor: "var(--panel-border)" }}>
+          <div className="flex justify-between">
+            <span className="hud-label">Uptime</span>
+            <span className="text-cyan-dim">{formatUptime(hostUptimeSec)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="hud-label">Platform</span>
+            <span className="text-cyan-dim">
+              {hostPlatform || "—"} · {hostCpuCount || "—"} cores
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="hud-label">Runtime</span>
+            <span className="text-cyan-dim">{hostNodeVersion || "—"}</span>
+          </div>
+        </div>
+      )}
     </Panel>
   );
 }

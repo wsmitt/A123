@@ -150,6 +150,38 @@ body::after {
   }
 }
 
+/* Standby mode: toggled by the ArmorStatus power button (a real action, not
+   decorative) — dims every glow, border and text under it uniformly via
+   filter, since that's one property instead of touching every component's
+   colors individually. Applied to a few separate elements (never to a
+   common ancestor of the fixed mobile mic bar) because `filter` makes its
+   element the containing block for fixed-position descendants, which would
+   otherwise break the mic bar's viewport-fixed positioning. */
+.standby-dim {
+  filter: brightness(0.35) saturate(0.55);
+  transition: filter 0.6s ease;
+}
+
+/* Radar contacts: slow orbital drift (per-contact duration set inline via
+   animation-duration) plus a periodic outward ping ring. */
+@keyframes radar-contact-drift {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes radar-ping {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.85;
+  }
+  80%,
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
 .hud-label {
   text-transform: uppercase;
   font-size: 10px;
@@ -165,6 +197,27 @@ body::after {
 .hud-redacted {
   filter: blur(3px);
   user-select: none;
+}
+
+.panel-interactive:hover,
+.panel-interactive:focus-visible {
+  border-color: var(--cyan);
+  outline: none;
+}
+
+/* A quick chunky reveal for new log lines — reads as "typed" without the
+   cost of per-character timers on a panel that can get busy. */
+@keyframes log-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.log-typewriter {
+  animation: log-reveal 0.4s steps(20, end) both;
 }
 
 ::-webkit-scrollbar {

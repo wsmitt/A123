@@ -5,7 +5,14 @@ import { DEFENSE_LABELS, isDefenseKey } from "./defenseSystems";
 import type { ChatMessage, ToolCallPayload } from "./groq";
 import { pushLog } from "./logBus";
 import { sanitizeForSpeech } from "./persona";
+import { playClickSound } from "./sfx";
 import { useJarvisStore, type ChatTurn } from "./store";
+
+interface SpeechQueue {
+  push: (sentence: string) => void;
+  finish: () => void;
+  clear: () => void;
+}
 
 // A tool call the model wants us to make, fully assembled from possibly
 // many streamed delta fragments (see streamChat's accumulator below).
@@ -65,6 +72,7 @@ export function useVoicePipeline(): VoicePipeline {
   const speechStartedAtRef = useRef<number>(0);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const stoppingRef = useRef(false);
+  const speechQueueRef = useRef<SpeechQueue | null>(null);
 
   const getAudioCtx = useCallback((): AudioContext => {
     if (!audioCtxRef.current) {
@@ -120,9 +128,11 @@ export function useVoicePipeline(): VoicePipeline {
   // -- LISTENING ------------------------------------------------------------
   const startListening = useCallback(async () => {
     if (store.getState().pipelineState === "speaking") {
-      // Barge-in: cut playback and go straight to listening.
+      // Barge-in: cut playback, drop any still-queued sentences, and go
+      // straight to listening.
       audioElRef.current?.pause();
       store.getState().setPlaybackLevel(0);
+      speechQueueRef.current?.clear();
     }
 
     try {
@@ -210,51 +220,107 @@ export function useVoicePipeline(): VoicePipeline {
     return data.text;
   }
 
-  // Applies one tool call to app state via the exact same handler a manual
-  // button tap uses (store.setDefenseSystem), so voice and touch can never
-  // fall out of sync. Every call is logged regardless of outcome; returns
-  // the "tool" role message reporting the result back to the model.
-  function applyToolCall(call: ParsedToolCall): ChatMessage {
-    if (call.name !== "toggle_defense_system") {
-      pushLog(`Unknown tool call: ${call.name}`, "warn");
+  // Applies one tool call to app state and returns the "tool" role message
+  // reporting the result back to the model. toggle_defense_system runs
+  // through the exact same handler a manual button tap uses
+  // (store.setDefenseSystem), so voice and touch can never fall out of
+  // sync. web_search is the only one that needs a server round trip
+  // (TAVILY_API_KEY never reaches the client). Every call is logged and
+  // gets a soft click, regardless of outcome.
+  async function applyToolCall(call: ParsedToolCall): Promise<ChatMessage> {
+    playClickSound();
+
+    if (call.name === "toggle_defense_system") {
+      const system = call.arguments.system;
+      const rawState = call.arguments.state;
+      pushLog(`Tool call: toggle_defense_system(${String(system)}, ${String(rawState)})`);
+
+      if (!isDefenseKey(system)) {
+        pushLog(`Tool call rejected: unknown system "${String(system)}".`, "warn");
+        return {
+          role: "tool",
+          tool_call_id: call.id,
+          content: JSON.stringify({ status: "error", message: "Unknown system" }),
+        };
+      }
+      if (rawState !== "on" && rawState !== "off") {
+        pushLog(`Tool call rejected: invalid state "${String(rawState)}".`, "warn");
+        return {
+          role: "tool",
+          tool_call_id: call.id,
+          content: JSON.stringify({ status: "error", message: "Invalid state" }),
+        };
+      }
+
+      store.getState().setDefenseSystem(system, rawState === "on");
       return {
         role: "tool",
         tool_call_id: call.id,
-        content: JSON.stringify({ status: "error", message: "Unknown tool" }),
+        content: JSON.stringify({
+          status: "ok",
+          system,
+          state: rawState,
+          label: DEFENSE_LABELS[system],
+        }),
       };
     }
 
-    const system = call.arguments.system;
-    const rawState = call.arguments.state;
-    pushLog(`Tool call: toggle_defense_system(${String(system)}, ${String(rawState)})`);
+    if (call.name === "web_search") {
+      const query = call.arguments.query;
+      pushLog(`Tool call: web_search(${String(query)})`);
 
-    if (!isDefenseKey(system)) {
-      pushLog(`Tool call rejected: unknown system "${String(system)}".`, "warn");
+      if (typeof query !== "string" || !query.trim()) {
+        pushLog("Tool call rejected: missing query.", "warn");
+        return {
+          role: "tool",
+          tool_call_id: call.id,
+          content: JSON.stringify({ status: "error", message: "Missing query" }),
+        };
+      }
+      try {
+        const res = await fetch("/api/tools/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+        });
+        if (!res.ok) throw await toApiError(res);
+        const data = await res.json();
+        pushLog(`Web search returned ${data.results?.length ?? 0} result(s).`);
+        return { role: "tool", tool_call_id: call.id, content: JSON.stringify(data) };
+      } catch (err) {
+        const e = err as Error;
+        pushLog(`Web search failed: ${e.message}`, "error");
+        return {
+          role: "tool",
+          tool_call_id: call.id,
+          content: JSON.stringify({ status: "error", message: "Search unavailable" }),
+        };
+      }
+    }
+
+    if (call.name === "launch_missiles") {
+      const target = call.arguments.target;
+      const targetLabel = typeof target === "string" && target.trim() ? target.trim() : "unspecified target";
+      pushLog(`Tool call: launch_missiles(${targetLabel})`);
+      // Purely theatrical: a log line and a spoken confirmation, nothing
+      // else. See the tool's description in lib/tools.ts.
+      pushLog(`Simulated missile launch sequence initiated — target: ${targetLabel}.`, "warn");
       return {
         role: "tool",
         tool_call_id: call.id,
-        content: JSON.stringify({ status: "error", message: "Unknown system" }),
-      };
-    }
-    if (rawState !== "on" && rawState !== "off") {
-      pushLog(`Tool call rejected: invalid state "${String(rawState)}".`, "warn");
-      return {
-        role: "tool",
-        tool_call_id: call.id,
-        content: JSON.stringify({ status: "error", message: "Invalid state" }),
+        content: JSON.stringify({
+          status: "ok",
+          target: targetLabel,
+          note: "Simulated for this HUD demo only — no real system was affected.",
+        }),
       };
     }
 
-    store.getState().setDefenseSystem(system, rawState === "on");
+    pushLog(`Unknown tool call: ${call.name}`, "warn");
     return {
       role: "tool",
       tool_call_id: call.id,
-      content: JSON.stringify({
-        status: "ok",
-        system,
-        state: rawState,
-        label: DEFENSE_LABELS[system],
-      }),
+      content: JSON.stringify({ status: "error", message: "Unknown tool" }),
     };
   }
 
@@ -273,11 +339,20 @@ export function useVoicePipeline(): VoicePipeline {
       content: t.content,
     }));
 
+    // Sentences are pushed into this queue the moment streamChat sees a
+    // completed sentence boundary — JARVIS starts speaking well before the
+    // full reply has finished streaming in, rather than waiting for it.
+    const speechQueue = createSpeechQueue();
+    speechQueueRef.current = speechQueue;
+
     try {
       let finalReply = "";
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-        const result = await callWithRetry(() => streamChat(wireMessages), "Chat");
+        const result = await callWithRetry(
+          () => streamChat(wireMessages, (sentence) => speechQueue.push(sentence)),
+          "Chat"
+        );
 
         if (result.toolCalls.length === 0) {
           finalReply = result.content;
@@ -301,12 +376,16 @@ export function useVoicePipeline(): VoicePipeline {
             })
           ),
         };
-        const toolResultMessages = result.toolCalls.map(applyToolCall);
+        // eslint-disable-next-line no-await-in-loop
+        const toolResultMessages = await Promise.all(result.toolCalls.map(applyToolCall));
         wireMessages = [...wireMessages, assistantToolMessage, ...toolResultMessages];
 
         if (round === MAX_TOOL_ROUNDS - 1) {
-          // Force a final answer rather than looping forever.
+          // Force a final answer rather than looping forever. This text
+          // never went through streamChat, so it never reached the speech
+          // queue via onSentence — queue it directly.
           finalReply = result.content || "Done, sir.";
+          if (!result.content) speechQueue.push(finalReply);
         }
       }
 
@@ -314,13 +393,17 @@ export function useVoicePipeline(): VoicePipeline {
       store.getState().addTurn({ role: "assistant", content: finalReply });
       store.getState().setTerminalReply(finalReply);
       pushLog("Model responded.");
-      await speak(finalReply);
+      speechQueue.finish();
     } catch (err) {
+      speechQueueRef.current = null;
       handlePipelineError(err, "Chat");
     }
   }
 
-  async function streamChat(messages: ChatMessage[]): Promise<StreamChatResult> {
+  async function streamChat(
+    messages: ChatMessage[],
+    onSentence?: (sentence: string) => void
+  ): Promise<StreamChatResult> {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -331,11 +414,38 @@ export function useVoicePipeline(): VoicePipeline {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let full = "";
+    let spokenUpTo = 0;
     let buffer = "";
     // Streamed tool_calls arrive in fragments keyed by index — name and id
     // typically land in the first fragment, arguments accumulate across
     // several as the model streams out the JSON piece by piece.
     const toolCallAcc: Record<number, { id: string; name: string; argsText: string }> = {};
+
+    // Speaks each fully-formed sentence (ending in . ! or ? followed by
+    // real whitespace already in the buffer) as soon as it's complete,
+    // rather than waiting for the whole reply — this is what lets JARVIS
+    // start talking mid-stream. `force` flushes whatever's left at the end
+    // of the stream even without trailing punctuation/whitespace.
+    function flushSentences(force: boolean) {
+      if (!onSentence) return;
+      const unspoken = full.slice(spokenUpTo);
+      if (!unspoken) return;
+      if (force) {
+        const trimmed = unspoken.trim();
+        if (trimmed) onSentence(trimmed);
+        spokenUpTo = full.length;
+        return;
+      }
+      const sentenceRe = /[^.!?]*[.!?]+\s+/g;
+      let match: RegExpExecArray | null;
+      let consumedEnd = 0;
+      while ((match = sentenceRe.exec(unspoken))) {
+        const trimmed = match[0].trim();
+        if (trimmed) onSentence(trimmed);
+        consumedEnd = sentenceRe.lastIndex;
+      }
+      if (consumedEnd > 0) spokenUpTo += consumedEnd;
+    }
 
     while (true) {
       const { done, value } = await reader.read();
@@ -355,6 +465,7 @@ export function useVoicePipeline(): VoicePipeline {
           if (contentDelta) {
             full += contentDelta;
             store.getState().setTerminalReply(full);
+            flushSentences(false);
           }
           const toolCallDeltas = delta.tool_calls;
           if (Array.isArray(toolCallDeltas)) {
@@ -372,6 +483,8 @@ export function useVoicePipeline(): VoicePipeline {
       }
     }
 
+    flushSentences(true);
+
     const toolCalls: ParsedToolCall[] = Object.values(toolCallAcc)
       .filter((tc) => tc.name)
       .map((tc) => {
@@ -387,25 +500,64 @@ export function useVoicePipeline(): VoicePipeline {
     return { content: full.trim(), toolCalls };
   }
 
-  // -- SPEAKING ---------------------------------------------------------------
-  async function speak(text: string) {
-    const clean = sanitizeForSpeech(text);
-    if (!clean) {
-      store.getState().setPipelineState("idle");
-      return;
+  // -- SPEAKING -----------------------------------------------------------
+  // A per-turn FIFO of sentences: push() enqueues and kicks off playback if
+  // nothing is currently draining, finish() marks no more sentences are
+  // coming (so the queue can return to idle once it's empty), and clear()
+  // drops everything queued for a barge-in. Sentences arrive here from
+  // streamChat's onSentence callback well before the full reply is done
+  // streaming, which is what lets JARVIS start talking mid-response.
+  function createSpeechQueue(): SpeechQueue {
+    const queue: string[] = [];
+    let draining = false;
+    let finished = false;
+    let cleared = false;
+
+    async function drain() {
+      if (draining) return;
+      draining = true;
+      while (queue.length > 0 && !cleared) {
+        const sentence = queue.shift()!;
+        const clean = sanitizeForSpeech(sentence);
+        if (!clean) continue;
+        if (store.getState().pipelineState !== "speaking") {
+          store.getState().setPipelineState("speaking");
+        }
+        try {
+          const res = await callWithRetry(() => synthesize(clean), "Speech synthesis");
+          if (cleared) break;
+          await playAudioBlob(res);
+          pushLog("TTS played.");
+        } catch (err) {
+          handlePipelineError(err, "Speech synthesis");
+          queue.length = 0;
+          draining = false;
+          return;
+        }
+      }
+      draining = false;
+      if ((finished || cleared) && queue.length === 0 && store.getState().pipelineState === "speaking") {
+        store.getState().setPipelineState("idle");
+      }
     }
-    store.getState().setPipelineState("speaking");
-    try {
-      const res = await callWithRetry(() => synthesize(clean), "Speech synthesis");
-      await playAudioBlob(res);
-      pushLog("TTS played.");
-    } catch (err) {
-      handlePipelineError(err, "Speech synthesis");
-      return;
-    }
-    if (store.getState().pipelineState === "speaking") {
-      store.getState().setPipelineState("idle");
-    }
+
+    return {
+      push(sentence) {
+        if (cleared) return;
+        queue.push(sentence);
+        void drain();
+      },
+      finish() {
+        finished = true;
+        if (!draining && queue.length === 0 && store.getState().pipelineState === "speaking") {
+          store.getState().setPipelineState("idle");
+        }
+      },
+      clear() {
+        cleared = true;
+        queue.length = 0;
+      },
+    };
   }
 
   async function synthesize(text: string): Promise<Blob> {

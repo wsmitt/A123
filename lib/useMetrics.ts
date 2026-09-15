@@ -12,6 +12,10 @@ interface MetricsResponse {
   cpuLoadPct: number;
   memUsedGB: number;
   memTotalGB: number;
+  uptimeSec: number;
+  platform: string;
+  cpuCount: number;
+  nodeVersion: string;
 }
 
 /**
@@ -47,6 +51,10 @@ export function useMetrics(): void {
           sessionBytes,
           online: typeof navigator === "undefined" ? true : navigator.onLine,
           latencyMs,
+          hostUptimeSec: data.uptimeSec,
+          hostPlatform: data.platform,
+          hostCpuCount: data.cpuCount,
+          hostNodeVersion: data.nodeVersion,
         });
       } catch {
         if (cancelled) return;

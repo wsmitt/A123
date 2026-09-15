@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Panel from "./Panel";
 import { useDecorativeDrift } from "@/lib/decorative";
 
@@ -69,13 +69,29 @@ function SubCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-export default function VitalSignsPanel() {
+export default function VitalSignsPanel({ delay = 0 }: { delay?: number }) {
   const heartRate = useDecorativeDrift(72, 68, 76, 0.4, 1800); // decorative
   const bodyTemp = useDecorativeDrift(98.6, 98.2, 98.9, 0.05, 2400); // decorative
   const bars = useHistogram(28, 2000); // decorative
+  const [expanded, setExpanded] = useState(false);
+
+  // Real, if modest: tapping the panel is a genuine action, and the
+  // session min/max readout it reveals is real (min/max of the decorative
+  // stream actually observed this session), not just a second copy of the
+  // same number.
+  const rangeRef = useRef({ min: heartRate, max: heartRate });
+  rangeRef.current.min = Math.min(rangeRef.current.min, heartRate);
+  rangeRef.current.max = Math.max(rangeRef.current.max, heartRate);
 
   return (
-    <Panel tag="VITAL SIGNS" redactedLabel="BIO-METRICS // LOCKED" className="h-full">
+    <Panel
+      tag="VITAL SIGNS"
+      redactedLabel="BIO-METRICS // LOCKED"
+      className="h-full"
+      delay={delay}
+      onClick={() => setExpanded((v) => !v)}
+      clickLabel={expanded ? "Collapse vital signs detail" : "Expand vital signs detail"}
+    >
       <div className="flex items-baseline justify-between">
         <span className="hud-label">Heart Rate</span>
       </div>
@@ -102,6 +118,13 @@ export default function VitalSignsPanel() {
         <SubCard label="Body Temp" value={`${bodyTemp.toFixed(1)} °F`} />
         <SubCard label="Neural Link" value="ACTIVE" />
       </div>
+
+      {expanded && (
+        <div className="mt-3 flex gap-2">
+          <SubCard label="Session Min" value={`${Math.round(rangeRef.current.min)} bpm`} />
+          <SubCard label="Session Max" value={`${Math.round(rangeRef.current.max)} bpm`} />
+        </div>
+      )}
     </Panel>
   );
 }

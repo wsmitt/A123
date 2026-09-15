@@ -33,14 +33,32 @@ function useClock(): string {
   return time ?? "--:--:--";
 }
 
+// Real, not cosmetic: derived entirely from live pipeline/system state, and
+// CRITICAL automatically renders in red because it reuses var(--cyan),
+// which alert mode (shield engaged) already overrides HUD-wide.
+function useThreatLevel(): { label: string; color: string; dim: boolean } {
+  const pipelineState = useJarvisStore((s) => s.pipelineState);
+  const alertMode = useJarvisStore((s) => s.defenseSystems.shield);
+  const degraded = useJarvisStore((s) => s.degraded);
+
+  if (alertMode) return { label: "CRITICAL", color: "var(--cyan)", dim: false };
+  if (degraded) return { label: "ELEVATED", color: "var(--amber)", dim: false };
+  if (pipelineState !== "idle") return { label: "ACTIVE", color: "var(--cyan)", dim: false };
+  return { label: "MINIMAL", color: "var(--cyan-dim)", dim: true };
+}
+
 export default function TopBar() {
   const time = useClock();
   const degraded = useJarvisStore((s) => s.degraded);
   const retryAfter = useJarvisStore((s) => s.retryAfter);
+  const standby = useJarvisStore((s) => !s.defenseSystems.power);
+  const threat = useThreatLevel();
 
   return (
     <div
-      className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-2 border px-3 sm:px-6"
+      className={`sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-2 border px-3 sm:px-6 ${
+        standby ? "standby-dim" : ""
+      }`}
       style={{ borderColor: "var(--panel-border)", background: "var(--panel)" }}
     >
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -75,6 +93,20 @@ export default function TopBar() {
             style={{ color: degraded ? "var(--amber)" : "var(--cyan)" }}
           >
             {degraded ? `DEGRADED${retryAfter ? ` (${retryAfter}s)` : ""}` : "OPTIMAL"}
+          </span>
+        </div>
+        <div className="hidden items-center gap-1.5 sm:flex sm:gap-2">
+          <span className="hud-label hidden xl:inline">Threat</span>
+          <span
+            aria-hidden
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ background: threat.color, opacity: threat.dim ? 0.5 : 1 }}
+          />
+          <span
+            className="whitespace-nowrap text-[10px] font-semibold tracking-[0.1em] sm:text-[11px]"
+            style={{ color: threat.color, opacity: threat.dim ? 0.6 : 1 }}
+          >
+            {threat.label}
           </span>
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2">

@@ -6,6 +6,50 @@ import { useJarvisStore } from "@/lib/store";
 // server and client renders — raw floats can differ in the last bit between
 // Node's and the browser's Math.cos/sin, which React flags as a hydration
 // mismatch even though the values are visually indistinguishable.
+// decorative: fixed (not random — avoids a server/client hydration
+// mismatch) starting positions; the slow per-contact drift + staggered
+// ping keyframes are what make them read as alive.
+const RADAR_CONTACTS = [
+  { r: 170, angle: 45, driftSec: 38, reverse: false, pingDelay: 0 },
+  { r: 130, angle: 200, driftSec: 52, reverse: true, pingDelay: 1.3 },
+  { r: 90, angle: 300, driftSec: 45, reverse: false, pingDelay: 2.6 },
+  { r: 155, angle: 110, driftSec: 60, reverse: true, pingDelay: 0.6 },
+];
+
+function RadarContact({
+  r,
+  angle,
+  driftSec,
+  reverse,
+  pingDelay,
+}: (typeof RADAR_CONTACTS)[number]) {
+  return (
+    <g
+      style={{
+        transformOrigin: "200px 200px",
+        animation: `radar-contact-drift ${driftSec}s linear infinite${reverse ? " reverse" : ""}`,
+      }}
+    >
+      <g transform={`rotate(${angle} 200 200)`}>
+        <circle cx={200 + r} cy="200" r="3" fill="var(--cyan)" opacity="0.85" />
+        <circle
+          cx={200 + r}
+          cy="200"
+          r="4"
+          fill="none"
+          stroke="var(--cyan)"
+          strokeWidth="1"
+          style={{
+            transformBox: "fill-box",
+            transformOrigin: "center",
+            animation: `radar-ping 2.6s ease-out ${pingDelay}s infinite`,
+          }}
+        />
+      </g>
+    </g>
+  );
+}
+
 function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
   const toRad = (d: number) => ((d - 90) * Math.PI) / 180;
   const round = (n: number) => Math.round(n * 100) / 100;
@@ -86,6 +130,9 @@ export default function CoreRadar() {
           strokeLinecap="round"
           style={{ filter: "drop-shadow(0 0 4px rgba(var(--cyan-rgb),0.85))" }}
         />
+        {RADAR_CONTACTS.map((contact, i) => (
+          <RadarContact key={i} {...contact} />
+        ))}
       </svg>
 
       <div

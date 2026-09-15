@@ -28,6 +28,12 @@ export function pushLog(message: string, level: LogLevel = "info"): void {
   listeners.forEach((listener) => listener());
 }
 
+/** Real action wired to SystemLogPanel's clear button — actually empties the log. */
+export function clearLogs(): void {
+  entries = [];
+  listeners.forEach((listener) => listener());
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
