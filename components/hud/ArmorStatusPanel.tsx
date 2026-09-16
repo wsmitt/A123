@@ -43,17 +43,24 @@ const ICONS: Record<DefenseKey, () => JSX.Element> = {
   reactor: ReactorIcon,
 };
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value, critical = false }: { label: string; value: number; critical?: boolean }) {
+  const color = critical ? "var(--amber)" : "var(--cyan)";
   return (
     <div className="mb-3">
       <div className="mb-1 flex items-center justify-between">
-        <span className="hud-label">{label}</span>
-        <span className="hud-value text-[13px]">{Math.round(value)}%</span>
+        <span className="hud-label">{critical ? `${label} — OFFLINE` : label}</span>
+        <span className="hud-value text-[13px]" style={{ color }}>
+          {Math.round(value)}%
+        </span>
       </div>
       <div className="h-[3px] w-full overflow-hidden rounded-full" style={{ background: "var(--grid-line)" }}>
         <div
           className="h-full rounded-full transition-all duration-700"
-          style={{ width: `${value}%`, background: "var(--cyan)", boxShadow: "1px 0 6px 1px rgba(var(--cyan-rgb),0.7)" }}
+          style={{
+            width: `${value}%`,
+            background: color,
+            boxShadow: `1px 0 6px 1px rgba(${critical ? "255,176,32" : "var(--cyan-rgb)"},0.7)`,
+          }}
         />
       </div>
     </div>
@@ -61,11 +68,16 @@ function Stat({ label, value }: { label: string; value: number }) {
 }
 
 export default function ArmorStatusPanel({ delay = 0 }: { delay?: number }) {
-  const powerCore = useDecorativeDrift(98, 92, 100, 0.4, 2600); // decorative
-  const structural = useDecorativeDrift(100, 96, 100, 0.15, 3000); // decorative
   const defenseSystems = useJarvisStore((s) => s.defenseSystems);
   const setDefenseSystem = useJarvisStore((s) => s.setDefenseSystem);
   const [expanded, setExpanded] = useState(false);
+
+  // Real, not cosmetic: toggling the Power Grid button actually cuts power
+  // to the armor — Power Core drains toward zero within a couple of drift
+  // ticks and climbs back once it's re-engaged, same hook, different range.
+  const powerOn = defenseSystems.power;
+  const powerCore = useDecorativeDrift(98, powerOn ? 92 : 0, powerOn ? 100 : 6, powerOn ? 0.4 : 0.8, 2600);
+  const structural = useDecorativeDrift(100, 96, 100, 0.15, 3000); // decorative
 
   // Real interaction, if modest: min/max of the actually-observed session,
   // not just a second copy of the current reading.
@@ -83,7 +95,7 @@ export default function ArmorStatusPanel({ delay = 0 }: { delay?: number }) {
         aria-expanded={expanded}
         className="block w-full text-left"
       >
-        <Stat label="Power Core" value={powerCore} />
+        <Stat label="Power Core" value={powerCore} critical={!powerOn} />
         <Stat label="Structural" value={structural} />
       </button>
 

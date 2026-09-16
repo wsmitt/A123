@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ASSISTANT_NAME, ASSISTANT_TAGLINE, USER_INITIAL, USER_NAME } from "@/lib/config";
 import { useJarvisStore } from "@/lib/store";
+import TimerBadge from "./TimerBadge";
 
 function BellIcon({ muted }: { muted: boolean }) {
   return (
@@ -116,6 +117,7 @@ export default function TopBar() {
             {threat.label}
           </span>
         </div>
+        <TimerBadge />
         <div className="flex items-center gap-1.5 sm:gap-2">
           <span className="hud-label hidden xl:inline">Local Time</span>
           <span className="whitespace-nowrap text-[10px] font-semibold tracking-[0.1em] text-cyan sm:text-[11px]">

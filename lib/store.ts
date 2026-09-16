@@ -70,6 +70,11 @@ interface JarvisStore {
   defenseSystems: Record<DefenseKey, boolean>;
   setDefenseSystem: (key: DefenseKey, on: boolean) => void;
 
+  // The active voice-set countdown timer, if any — shown live in TopBar.
+  // Only one at a time; setting a new one replaces whatever was running.
+  activeTimer: { label: string; endsAt: number } | null;
+  setActiveTimer: (timer: { label: string; endsAt: number } | null) => void;
+
   // Real host + session metrics, polled from /api/metrics.
   cpuLoadPct: number;
   memUsedGB: number;
@@ -162,6 +167,9 @@ export const useJarvisStore = create<JarvisStore>((set) => ({
       pushLog(`${DEFENSE_LABELS[key]} ${on ? "engaged" : "disengaged"}.`);
       return { defenseSystems: { ...s.defenseSystems, [key]: on } };
     }),
+
+  activeTimer: null,
+  setActiveTimer: (activeTimer) => set({ activeTimer }),
 
   cpuLoadPct: 0,
   memUsedGB: 0,

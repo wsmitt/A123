@@ -346,6 +346,128 @@ export function useVoicePipeline(): VoicePipeline {
       };
     }
 
+    if (call.name === "get_weather") {
+      const location = call.arguments.location;
+      pushLog(`Tool call: get_weather(${String(location)})`);
+
+      if (typeof location !== "string" || !location.trim()) {
+        pushLog("Tool call rejected: missing location.", "warn");
+        return {
+          role: "tool",
+          tool_call_id: call.id,
+          content: JSON.stringify({ status: "error", message: "Missing location" }),
+        };
+      }
+      try {
+        const res = await fetch("/api/tools/weather", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ location }),
+        });
+        if (!res.ok) throw await toApiError(res);
+        const data = await res.json();
+        pushLog(`Weather lookup returned ${data.condition}, ${data.temperatureC}°C for ${data.location}.`);
+        return { role: "tool", tool_call_id: call.id, content: JSON.stringify(data) };
+      } catch (err) {
+        const e = err as Error;
+        pushLog(`Weather lookup failed: ${e.message}`, "error");
+        return {
+          role: "tool",
+          tool_call_id: call.id,
+          content: JSON.stringify({ status: "error", message: "Weather unavailable" }),
+        };
+      }
+    }
+
+    if (call.name === "set_timer") {
+      const rawSeconds = call.arguments.seconds;
+      const seconds = typeof rawSeconds === "number" ? Math.round(rawSeconds) : NaN;
+      const label =
+        typeof call.arguments.label === "string" && call.arguments.label.trim()
+          ? call.arguments.label.trim()
+          : "Timer";
+      pushLog(`Tool call: set_timer(${seconds}s, "${label}")`);
+
+      // Cap at 6 hours — generous for any real use, guards against a
+      // misheard/misparsed duration silently scheduling something absurd.
+      if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 6 * 3600) {
+        pushLog("Tool call rejected: invalid timer duration.", "warn");
+        return {
+          role: "tool",
+          tool_call_id: call.id,
+          content: JSON.stringify({ status: "error", message: "Invalid duration" }),
+        };
+      }
+
+      const endsAt = Date.now() + seconds * 1000;
+      store.getState().setActiveTimer({ label, endsAt });
+
+      setTimeout(() => {
+        // Only fire if this is still the active timer — a later set_timer
+        // call (or nothing at all) may have already replaced/cleared it.
+        if (store.getState().activeTimer?.endsAt !== endsAt) return;
+        store.getState().setActiveTimer(null);
+        playClickSound();
+        pushLog(`Timer done: ${label}.`, "warn");
+        void (async () => {
+          try {
+            const res = await synthesize(sanitizeForSpeech(`${label} timer is up, sir.`));
+            await playAudioBlob(res);
+          } catch {
+            // Non-fatal — the log line above already recorded it.
+          }
+        })();
+      }, seconds * 1000);
+
+      return {
+        role: "tool",
+        tool_call_id: call.id,
+        content: JSON.stringify({ status: "ok", label, seconds }),
+      };
+    }
+
+    if (call.name === "run_diagnostics") {
+      pushLog("Tool call: run_diagnostics()");
+      // All real, already-live data — no network round trip needed, it's
+      // the same figures ResourceMonitorPanel and ArmorStatusPanel show,
+      // read straight from the store useMetrics() already keeps polled.
+      const s = store.getState();
+      const report = {
+        status: "ok",
+        cpuLoadPct: s.cpuLoadPct,
+        memUsedGB: s.memUsedGB,
+        memTotalGB: s.memTotalGB,
+        hostUptimeSec: s.hostUptimeSec,
+        hostPlatform: s.hostPlatform,
+        defenseSystems: s.defenseSystems,
+      };
+      pushLog(`Diagnostics: CPU ${report.cpuLoadPct}%, mem ${report.memUsedGB}/${report.memTotalGB}GB.`);
+      return { role: "tool", tool_call_id: call.id, content: JSON.stringify(report) };
+    }
+
+    if (call.name === "self_destruct") {
+      pushLog("Tool call: self_destruct()");
+      // Purely theatrical, same spirit as launch_missiles: a dramatic log
+      // countdown that stands itself down a few seconds later. Nothing
+      // here touches any real state.
+      pushLog("SELF-DESTRUCT SEQUENCE INITIATED.", "error");
+      [5, 4, 3, 2, 1].forEach((n, i) => {
+        setTimeout(() => pushLog(`T-minus ${n}...`, "warn"), (i + 1) * 700);
+      });
+      setTimeout(() => {
+        pushLog("Sequence aborted. Just a bit of theatre, sir.", "info");
+      }, 6 * 700);
+
+      return {
+        role: "tool",
+        tool_call_id: call.id,
+        content: JSON.stringify({
+          status: "ok",
+          note: "Simulated for this HUD demo only — purely theatrical, nothing was affected, and the sequence self-aborts.",
+        }),
+      };
+    }
+
     pushLog(`Unknown tool call: ${call.name}`, "warn");
     return {
       role: "tool",

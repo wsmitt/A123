@@ -18,14 +18,19 @@ export default function NetworkPanel({ delay = 0 }: { delay?: number }) {
   const online = useJarvisStore((s) => s.online);
   const latencyMs = useJarvisStore((s) => s.latencyMs);
   const setMetrics = useJarvisStore((s) => s.setMetrics);
+  // Real, not cosmetic: the Signal defense button cuts this panel's uplink
+  // directly, independent of actual network status — toggle it off and the
+  // panel drops to "Uplink Offline" and refuses to ping until it's back on.
+  const signalOn = useJarvisStore((s) => s.defenseSystems.signal);
   const [pinging, setPinging] = useState(false);
-  const color = online ? "var(--cyan-dim)" : "var(--amber)";
+  const up = online && signalOn;
+  const color = up ? "var(--cyan-dim)" : "var(--amber)";
 
   // Real: fires an actual request to /api/metrics and measures its own
   // round trip, independent of the background 3s poll — a real re-ping on
   // demand, not just re-showing the last cached number.
   async function pingNow() {
-    if (pinging) return;
+    if (pinging || !signalOn) return;
     setPinging(true);
     const start = performance.now();
     try {
@@ -46,18 +51,18 @@ export default function NetworkPanel({ delay = 0 }: { delay?: number }) {
       className="h-full"
       delay={delay}
       onClick={() => void pingNow()}
-      clickLabel="Ping uplink now"
+      clickLabel={signalOn ? "Ping uplink now" : "Signal disabled"}
     >
       <div className="flex h-full flex-col items-center justify-center gap-2 py-4 text-center">
         <NoSignalIcon color={color} />
         <div className="hud-label" style={{ color }}>
-          {online ? "Signal Encrypted" : "Uplink Offline"}
+          {!signalOn ? "Signal Disabled" : online ? "Signal Encrypted" : "Uplink Offline"}
         </div>
         <div className="hud-redacted text-[10px] uppercase tracking-[0.1em] text-cyan-dim/70">
           {SAT_LINK_NAME}
         </div>
         <div className="text-[9px] uppercase tracking-[0.1em] text-cyan-dim/60">
-          {pinging ? "Pinging..." : latencyMs !== null ? `Ping ${latencyMs}ms` : "Tap to ping"}
+          {!signalOn ? "No carrier" : pinging ? "Pinging..." : latencyMs !== null ? `Ping ${latencyMs}ms` : "Tap to ping"}
         </div>
       </div>
     </Panel>
